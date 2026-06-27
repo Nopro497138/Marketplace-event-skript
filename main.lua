@@ -168,10 +168,8 @@ local function addLog(eventType, data)
     print("[Logger] Neuer Log: " .. eventType .. " (Index " .. index .. ")")
 end
 
--- ========== MARKETPLACE SERVICE HOOK ==========
+-- ========== MARKETPLACE SERVICE HOOK (ohne Leseversuch) ==========
 print("🔄 Versuche MarketplaceService.ProcessReceipt zu überschreiben...")
-
-local originalProcessReceipt = MarketplaceService.ProcessReceipt
 
 local hookSuccess = pcall(function()
     MarketplaceService.ProcessReceipt = function(receiptInfo)
@@ -185,15 +183,13 @@ local hookSuccess = pcall(function()
             assetId = receiptInfo.AssetId
         }
         addLog("Purchase", logData)
-        if originalProcessReceipt then
-            return originalProcessReceipt(receiptInfo)
-        end
+        -- Wir geben standardmäßig PurchaseGranted zurück
         return Enum.ProductPurchaseDecision.PurchaseGranted
     end
 end)
 
 if hookSuccess then
-    print("✅ ProcessReceipt erfolgreich überschrieben.")
+    print("✅ ProcessReceipt erfolgreich überschrieben (ohne Leseversuch).")
 else
     print("⚠️ ProcessReceipt konnte nicht überschrieben werden (möglicherweise schreibgeschützt).")
     print("💡 Trotzdem kannst du manuell Logs hinzufügen (z.B. über eigene Skripte).")
@@ -248,10 +244,10 @@ gui.ExecuteButton.MouseButton1Click:Connect(function()
     print("[Logger] Event ausgeführt (Index " .. selectedIndex .. ")")
 end)
 
--- ========== TEST-EINTRAG HINZUFÜGEN ==========
+-- ========== TEST-EINTRÄGE HINZUFÜGEN ==========
 wait(0.5)
 addLog("Purchase", { productId = 123456, price = 100 })
-addLog("Purchase", { productId = 789012, price = 200 }) -- zweiter Test
+addLog("Purchase", { productId = 789012, price = 200 })
 
 print("✅ Skript vollständig geladen. GUI sollte sichtbar sein!")
 print("📌 Test-Logs wurden hinzugefügt. Kaufe etwas im Spiel, um echte Logs zu sehen.")
