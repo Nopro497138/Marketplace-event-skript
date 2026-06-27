@@ -1,30 +1,26 @@
--- ============================================================
--- Marketplace Event Logger & Re-Executor (für Delta, Synapse, Krnl)
--- Mit Fehlerbehandlung und Debug-Ausgaben
--- ============================================================
+print("========================================")
+print("📦 Marketplace Event Logger (für Executor)")
+print("========================================")
 
 local Players = game:GetService("Players")
 local MarketplaceService = game:GetService("MarketplaceService")
 local player = Players.LocalPlayer
 
--- Warten, bis der Spieler existiert
 if not player then
-    warn("LocalPlayer nicht gefunden, warte...")
+    print("⏳ Warte auf LocalPlayer...")
     repeat wait() until Players.LocalPlayer
     player = Players.LocalPlayer
 end
+print("👤 Spieler: " .. player.Name)
 
-print("✅ Skript gestartet für Spieler: " .. player.Name)
-
--- ========== GUI ERSTELLEN (mit pcall für Fehlerabfang) ==========
+-- ========== GUI IN COREGUI ERSTELLEN ==========
 local function createGUI()
-    print("🛠️ Erstelle GUI...")
+    print("🛠️ Erstelle GUI in CoreGui...")
     
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "MarketplaceLogger"
-    screenGui.IgnoreGuiInset = true      -- damit es nicht von der Inset-Leiste verdeckt wird
-    screenGui.ResetOnSpawn = false       -- bleibt nach Respawn erhalten
-    screenGui.Parent = player:WaitForChild("PlayerGui")
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = game:GetService("CoreGui")  -- CoreGui ist sicher
 
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
@@ -82,7 +78,7 @@ local function createGUI()
     executeButton.Font = Enum.Font.Gotham
     executeButton.Parent = mainFrame
 
-    print("✅ GUI erfolgreich erstellt!")
+    print("✅ GUI erfolgreich erstellt (CoreGui).")
     return {
         ScreenGui = screenGui,
         MainFrame = mainFrame,
@@ -92,15 +88,11 @@ local function createGUI()
     }
 end
 
--- GUI mit Fehlerabfang erstellen
-local gui
-local success, err = pcall(function()
-    gui = createGUI()
-end)
-
-if not success then
-    warn("❌ Fehler beim Erstellen der GUI: " .. tostring(err))
-    return  -- Skript beenden
+-- GUI erstellen
+local gui = createGUI()
+if not gui then
+    warn("❌ GUI konnte nicht erstellt werden – Skript wird beendet.")
+    return
 end
 
 local logContainer = gui.LogContainer
@@ -176,29 +168,36 @@ local function addLog(eventType, data)
     print("[Logger] Neuer Log: " .. eventType .. " (Index " .. index .. ")")
 end
 
--- ========== MARKETPLACE SERVICE ÜBERSCHREIBEN ==========
+-- ========== MARKETPLACE SERVICE HOOK ==========
+print("🔄 Versuche MarketplaceService.ProcessReceipt zu überschreiben...")
+
 local originalProcessReceipt = MarketplaceService.ProcessReceipt
 
-MarketplaceService.ProcessReceipt = function(receiptInfo)
-    print("[Logger] 🔔 Kauf erkannt! ProductId: " .. tostring(receiptInfo.ProductId))
-    
-    local logData = {
-        productId = receiptInfo.ProductId,
-        purchaseId = receiptInfo.PurchaseId,
-        placeId = receiptInfo.PlaceId,
-        currencyType = receiptInfo.CurrencyType,
-        price = receiptInfo.Price,
-        assetId = receiptInfo.AssetId
-    }
-    addLog("Purchase", logData)
-
-    if originalProcessReceipt then
-        return originalProcessReceipt(receiptInfo)
+local hookSuccess = pcall(function()
+    MarketplaceService.ProcessReceipt = function(receiptInfo)
+        print("[Logger] 🔔 Kauf erkannt! ProductId: " .. tostring(receiptInfo.ProductId))
+        local logData = {
+            productId = receiptInfo.ProductId,
+            purchaseId = receiptInfo.PurchaseId,
+            placeId = receiptInfo.PlaceId,
+            currencyType = receiptInfo.CurrencyType,
+            price = receiptInfo.Price,
+            assetId = receiptInfo.AssetId
+        }
+        addLog("Purchase", logData)
+        if originalProcessReceipt then
+            return originalProcessReceipt(receiptInfo)
+        end
+        return Enum.ProductPurchaseDecision.PurchaseGranted
     end
-    return Enum.ProductPurchaseDecision.PurchaseGranted
-end
+end)
 
-print("[Logger] ✅ MarketplaceService.ProcessReceipt überschrieben. Warte auf Käufe...")
+if hookSuccess then
+    print("✅ ProcessReceipt erfolgreich überschrieben.")
+else
+    print("⚠️ ProcessReceipt konnte nicht überschrieben werden (möglicherweise schreibgeschützt).")
+    print("💡 Trotzdem kannst du manuell Logs hinzufügen (z.B. über eigene Skripte).")
+end
 
 -- ========== BUTTON-FUNKTIONEN ==========
 gui.ClearButton.MouseButton1Click:Connect(function()
@@ -252,5 +251,8 @@ end)
 -- ========== TEST-EINTRAG HINZUFÜGEN ==========
 wait(0.5)
 addLog("Purchase", { productId = 123456, price = 100 })
+addLog("Purchase", { productId = 789012, price = 200 }) -- zweiter Test
 
 print("✅ Skript vollständig geladen. GUI sollte sichtbar sein!")
+print("📌 Test-Logs wurden hinzugefügt. Kaufe etwas im Spiel, um echte Logs zu sehen.")
+print("========================================")
