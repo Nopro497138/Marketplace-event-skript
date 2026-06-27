@@ -20,7 +20,7 @@ local function createGUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "MarketplaceLogger"
     screenGui.ResetOnSpawn = false
-    screenGui.Parent = game:GetService("CoreGui")  -- CoreGui ist sicher
+    screenGui.Parent = game:GetService("CoreGui")
 
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
@@ -168,7 +168,7 @@ local function addLog(eventType, data)
     print("[Logger] Neuer Log: " .. eventType .. " (Index " .. index .. ")")
 end
 
--- ========== MARKETPLACE SERVICE HOOK (ohne Leseversuch) ==========
+-- ========== MARKETPLACE SERVICE HOOK ==========
 print("🔄 Versuche MarketplaceService.ProcessReceipt zu überschreiben...")
 
 local hookSuccess = pcall(function()
@@ -183,16 +183,16 @@ local hookSuccess = pcall(function()
             assetId = receiptInfo.AssetId
         }
         addLog("Purchase", logData)
-        -- Wir geben standardmäßig PurchaseGranted zurück
+        -- Immer genehmigen (Standard)
         return Enum.ProductPurchaseDecision.PurchaseGranted
     end
 end)
 
 if hookSuccess then
-    print("✅ ProcessReceipt erfolgreich überschrieben (ohne Leseversuch).")
+    print("✅ ProcessReceipt erfolgreich überschrieben.")
 else
     print("⚠️ ProcessReceipt konnte nicht überschrieben werden (möglicherweise schreibgeschützt).")
-    print("💡 Trotzdem kannst du manuell Logs hinzufügen (z.B. über eigene Skripte).")
+    print("💡 Du kannst trotzdem manuell Logs mit 'addLog()' hinzufügen.")
 end
 
 -- ========== BUTTON-FUNKTIONEN ==========
@@ -225,7 +225,7 @@ gui.ExecuteButton.MouseButton1Click:Connect(function()
     local data = logEntry.data
     if logEntry.eventType == "Purchase" then
         print(string.format("[Logger] ▶️ Führe Kauf erneut aus: Produkt %s", data.productId))
-        -- Hier kannst du deine eigene Aktion einfügen (z.B. RemoteEvent feuern)
+        -- Beispiel: Kurze Benachrichtigung
         local notif = Instance.new("TextLabel")
         notif.Size = UDim2.new(0, 300, 0, 40)
         notif.Position = UDim2.new(0.5, -150, 0.8, 0)
@@ -244,7 +244,7 @@ gui.ExecuteButton.MouseButton1Click:Connect(function()
     print("[Logger] Event ausgeführt (Index " .. selectedIndex .. ")")
 end)
 
--- ========== TEST-EINTRÄGE HINZUFÜGEN ==========
+-- ========== TEST-EINTRAG HINZUFÜGEN ==========
 wait(0.5)
 addLog("Purchase", { productId = 123456, price = 100 })
 addLog("Purchase", { productId = 789012, price = 200 })
