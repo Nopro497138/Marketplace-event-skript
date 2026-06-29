@@ -1,89 +1,47 @@
 --[[
-    ROBLOX - PART / OBJEKT ESP (Text + Highlight)
-    Hebt bestimmte Teile (z.B. Truhen, Türen, Items) hervor und zeigt Namen + Distanz an.
-    Keine Spieler-ESP!
+    🔍 PART-ESP MIT UI
+    Gib ein Wort ein, und alle Parts mit diesem Wort im Namen werden hervorgehoben.
+    Mehrere Begriffe sind möglich (werden gesammelt).
 ]]
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 
--- ===== 📝 KONFIGURATION =====
+-- ===== 🎨 FARBEN & EINSTELLUNGEN =====
 local CONFIG = {
-    -- Modus: "WHITELIST" (bestimmte Namen), "ATTRIBUTE" (Teile mit einem bestimmten Attribut), "ALL" (ALLE Teile - Vorsicht bei Performance!)
-    Mode = "WHITELIST",
-    
-    -- Für WHITELIST: Teile/Modelle, die diesen Text im Namen enthalten (Groß-/Kleinschreibung egal)
-    TargetNames = {"Chest", "Truhe", "Loot", "Door", "Tür", "Button", "Schalter", "Item"},
-    
-    -- Für ATTRIBUTE: Name des Attributes, das das Teil haben muss (z.B. "DisplayName" oder "Text")
-    -- Wenn gesetzt, wird der Wert dieses Attributes als Anzeigetext verwendet.
-    TargetAttribute = "ESP_Text",
-    
-    -- 🎨 Farben
     HighlightColor = Color3.fromRGB(0, 255, 200),  -- Türkis-Glow
     OutlineColor = Color3.fromRGB(255, 255, 255),  -- Weiße Umrandung
-    TextColor = Color3.fromRGB(255, 255, 255),     -- Weißer Text
-    TextSize = 18,                                 -- Schriftgröße
-    
-    -- Einstellungen
-    ShowDistance = true,        -- Soll die Entfernung angezeigt werden?
-    UpdateInterval = 0.15,      -- Wie oft die Distanz aktualisiert wird (Sekunden)
+    TextColor = Color3.fromRGB(255, 255, 255),     -- Textfarbe
+    TextSize = 18,
+    UpdateInterval = 0.15,
+    ShowDistance = true,
+    OffsetHeight = 2.5,  -- Höhe des Textes über dem Part
 }
 
--- ===== INTERNE VARIABLEN =====
-local ESPedObjects = {}  -- Tabelle, um bereits behandelte Objekte zu speichern
+-- ===== INTERNER SPEICHER =====
+local activeTerms = {}      -- Aktive Suchbegriffe (z.B. {"Truhe", "Kiste"})
+local espMap = {}           -- Tabelle: Objekt -> seine ESP-Daten
 
 -- ===== HILFSFUNKTIONEN =====
 
--- Prüft, ob ein Objekt ge-ESPt werden soll
-local function IsTarget(instance)
-    -- Nur BaseParts (Teile) oder Modelle (Gruppen von Teilen) beachten
-    if not (instance:IsA("BasePart") or instance:IsA("Model")) then return false end
-    
-    -- Terrain ausschließen (Performance)
-    if instance:IsA("BasePart") and instance.Name == "Terrain" then return false end
-    
-    -- Versteckte/ungefährliche Teile ignorieren (optional)
-    if instance:IsA("BasePart") and instance.Material == Enum.Material.Water then return false end
-
-    if CONFIG.Mode == "ALL" then
-        return true
-    end
-    
-    if CONFIG.Mode == "WHITELIST" then
-        local lowerName = string.lower(instance.Name)
-        for _, target in ipairs(CONFIG.TargetNames) do
-            if string.find(lowerName, string.lower(target)) then
-                return true
-            end
+-- Prüft, ob ein Objekt einen der aktiven Begriffe im Namen hat
+local function matchesActiveTerms(instance)
+    local lowerName = string.lower(instance.Name)
+    for _, term in ipairs(activeTerms) do
+        if string.find(lowerName, string.lower(term), 1, true) then
+            return true
         end
-        return false
     end
-    
-    if CONFIG.Mode == "ATTRIBUTE" then
-        return instance:GetAttribute(CONFIG.TargetAttribute) ~= nil
-    end
-    
     return false
 end
 
--- Holt den anzuzeigenden Text für ein Objekt
-local function GetDisplayText(instance)
-    if CONFIG.Mode == "ATTRIBUTE" then
-        local attr = instance:GetAttribute(CONFIG.TargetAttribute)
-        if attr then return tostring(attr) end
-    end
-    return instance.Name  -- Fallback: Der Name des Parts
-end
-
--- Findet einen "Adornee"-Part für das Billboard (braucht einen konkreten Part)
-local function GetAdornee(instance)
+-- Findet einen passenden Part (Adornee) für das Billboard
+local function getAdornee(instance)
     if instance:IsA("BasePart") then
         return instance
     elseif instance:IsA("Model") then
-        -- Versuche zuerst den PrimaryPart, sonst nimm den ersten Part
         local primary = instance.PrimaryPart
         if primary then return primary end
         for _, child in ipairs(instance:GetChildren()) do
@@ -95,56 +53,56 @@ local function GetAdornee(instance)
     return nil
 end
 
--- ===== ESP ERSTELLEN & ENTFERNEN =====
+-- ===== ESP KERN-FUNKTIONEN =====
 
-local function CreateESP(instance)
-    if ESPedObjects[instance] then return end  -- Schon vorhanden
-    local adornee = GetAdornee(instance)
+local function createESP(instance)
+    if espMap[instance] then return end  -- Bereits vorhanden
+    local adornee = getAdornee(instance)
     if not adornee then return end
 
-    -- 1. HIGHLIGHT (Glow um das ganze Modell / Part)
+    -- 1. HIGHLIGHT (Glow)
     local highlight = Instance.new("Highlight")
-    highlight.Name = "ESP_Part_Highlight"
-    highlight.Adornee = instance  -- Kann ein Part oder Model sein
+    highlight.Name = "ESP_Search_Highlight"
+    highlight.Adornee = instance
     highlight.FillColor = CONFIG.HighlightColor
     highlight.OutlineColor = CONFIG.OutlineColor
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = instance
 
-    -- 2. BILLBOARD (Text über dem Objekt)
+    -- 2. BILLBOARD (Text)
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_Part_Billboard"
+    billboard.Name = "ESP_Search_Billboard"
     billboard.Adornee = adornee
     billboard.Size = UDim2.new(0, 250, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, 2.5, 0)  -- Höhe über dem Objekt
+    billboard.StudsOffset = Vector3.new(0, CONFIG.OffsetHeight, 0)
     billboard.AlwaysOnTop = true
     billboard.Parent = instance
 
     local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "ESP_Part_Text"
+    textLabel.Name = "ESP_Search_Text"
     textLabel.Size = UDim2.new(1, 0, 1, 0)
     textLabel.BackgroundTransparency = 1
     textLabel.TextColor3 = CONFIG.TextColor
     textLabel.TextStrokeTransparency = 0
-    textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)  -- Schwarze Kontur
+    textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     textLabel.Font = Enum.Font.GothamBold
     textLabel.TextScaled = false
     textLabel.TextSize = CONFIG.TextSize
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
-    -- Objekt in der Tabelle speichern
-    ESPedObjects[instance] = {
+    -- Daten speichern
+    espMap[instance] = {
         Highlight = highlight,
         Billboard = billboard,
         TextLabel = textLabel,
         Adornee = adornee,
-        DisplayName = GetDisplayText(instance)
+        DisplayName = instance.Name,  -- Zeigt den Namen des Objekts an
     }
 
-    -- 3. UPDATE-SCHLEIFE für Distanz und Text
+    -- 3. DISTANZ-UPDATE-SCHLEIFE (läuft parallel)
     task.spawn(function()
-        local data = ESPedObjects[instance]
+        local data = espMap[instance]
         if not data then return end
         
         while instance and instance.Parent and data.TextLabel do
@@ -171,47 +129,232 @@ local function CreateESP(instance)
     end)
 end
 
-local function RemoveESP(instance)
-    local data = ESPedObjects[instance]
+local function removeESP(instance)
+    local data = espMap[instance]
     if data then
         if data.Highlight then data.Highlight:Destroy() end
         if data.Billboard then data.Billboard:Destroy() end
-        ESPedObjects[instance] = nil
+        espMap[instance] = nil
     end
 end
 
--- ===== WELT-SCANNER (Findet Objekte) =====
+-- ===== SUCHFUNKTION =====
 
--- Durchsucht das gesamte Workspace nach neuen Zielen
-local function ScanForTargets()
-    for _, instance in ipairs(Workspace:GetDescendants()) do
-        if IsTarget(instance) and not ESPedObjects[instance] then
-            CreateESP(instance)
+-- Durchsucht die ganze Welt nach neuen Objekten mit dem neuen Begriff
+local function searchAndAdd(term)
+    if not term or string.len(term) == 0 then return end
+    
+    -- Begriff bereinigen und speichern (wenn nicht schon vorhanden)
+    local cleanTerm = string.lower(term)
+    for _, existing in ipairs(activeTerms) do
+        if existing == cleanTerm then
+            print("⚠️ Begriff '" .. term .. "' ist bereits aktiv.")
+            return
         end
+    end
+    table.insert(activeTerms, cleanTerm)
+    print("🔍 Suche nach: '" .. term .. "'")
+    
+    -- Alle Objekte im Workspace durchgehen
+    local count = 0
+    for _, instance in ipairs(Workspace:GetDescendants()) do
+        if (instance:IsA("BasePart") or instance:IsA("Model")) then
+            -- Nur wenn es noch nicht ge-ESPt ist UND den Begriff enthält
+            if not espMap[instance] and matchesActiveTerms(instance) then
+                createESP(instance)
+                count = count + 1
+            end
+        end
+    end
+    
+    -- Status in der UI aktualisieren
+    updateStatusLabel()
+    print("✅ " .. count .. " neue Objekte wurden zu ESP hinzugefügt.")
+end
+
+-- Entfernt ALLE ESPs und leert die Suchbegriffe
+local function clearAllESP()
+    for instance, _ in pairs(espMap) do
+        removeESP(instance)
+    end
+    activeTerms = {}
+    updateStatusLabel()
+    print("🧹 Alle ESPs wurden entfernt.")
+end
+
+-- ===== UI ERSTELLEN =====
+
+local function createUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "PartSearchESP_GUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = CoreGui
+
+    -- Haupt-Frame (verschiebbar)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 320, 0, 180)
+    mainFrame.Position = UDim2.new(0, 10, 0, 10)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    mainFrame.BackgroundTransparency = 0.15
+    mainFrame.BorderSizePixel = 1
+    mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 120)
+    mainFrame.ClipsDescendants = true
+    mainFrame.Draggable = true
+    mainFrame.Active = true
+    mainFrame.Parent = screenGui
+
+    -- Abgerundete Ecken
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = mainFrame
+
+    -- Titel
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "🔍 Part-ESP Suche"
+    title.TextColor3 = Color3.fromRGB(220, 220, 255)
+    title.TextSize = 18
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Center
+    title.Parent = mainFrame
+
+    -- Eingabefeld (TextBox)
+    local textBox = Instance.new("TextBox")
+    textBox.Name = "SearchBox"
+    textBox.Size = UDim2.new(1, -20, 0, 35)
+    textBox.Position = UDim2.new(0, 10, 0, 35)
+    textBox.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    textBox.BorderSizePixel = 0
+    textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    textBox.TextSize = 16
+    textBox.Font = Enum.Font.GothamMedium
+    textBox.PlaceholderText = "Wort eingeben (z.B. 'Truhe')"
+    textBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 180)
+    textBox.ClearTextOnFocus = false
+    textBox.Parent = mainFrame
+
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 4)
+    boxCorner.Parent = textBox
+
+    -- Button-Container (horizontal)
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Name = "ButtonContainer"
+    buttonContainer.Size = UDim2.new(1, 0, 0, 40)
+    buttonContainer.Position = UDim2.new(0, 0, 0, 75)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.Parent = mainFrame
+
+    -- "Suchen"-Button
+    local searchBtn = Instance.new("TextButton")
+    searchBtn.Name = "SearchBtn"
+    searchBtn.Size = UDim2.new(0.45, -5, 1, 0)
+    searchBtn.Position = UDim2.new(0, 0, 0, 0)
+    searchBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 140)
+    searchBtn.BorderSizePixel = 0
+    searchBtn.Text = "➕ Hinzufügen"
+    searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    searchBtn.TextSize = 15
+    searchBtn.Font = Enum.Font.GothamBold
+    searchBtn.Parent = buttonContainer
+
+    local searchCorner = Instance.new("UICorner")
+    searchCorner.CornerRadius = UDim.new(0, 4)
+    searchCorner.Parent = searchBtn
+
+    -- "Alles löschen"-Button
+    local clearBtn = Instance.new("TextButton")
+    clearBtn.Name = "ClearBtn"
+    clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
+    clearBtn.Position = UDim2.new(0.55, 0, 0, 0)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    clearBtn.BorderSizePixel = 0
+    clearBtn.Text = "🗑️ Alles entfernen"
+    clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    clearBtn.TextSize = 15
+    clearBtn.Font = Enum.Font.GothamBold
+    clearBtn.Parent = buttonContainer
+
+    local clearCorner = Instance.new("UICorner")
+    clearCorner.CornerRadius = UDim.new(0, 4)
+    clearCorner.Parent = clearBtn
+
+    -- Status-Label (zeigt aktive Begriffe)
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(1, -20, 0, 35)
+    statusLabel.Position = UDim2.new(0, 10, 0, 125)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Aktiv: Keine"
+    statusLabel.TextColor3 = Color3.fromRGB(180, 180, 210)
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.GothamMedium
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.TextWrapped = true
+    statusLabel.Parent = mainFrame
+
+    -- ===== EVENTS =====
+
+    -- Suchen-Button
+    searchBtn.MouseButton1Click:Connect(function()
+        local term = textBox.Text
+        if string.len(term) > 0 then
+            searchAndAdd(term)
+            textBox.Text = ""  -- Feld leeren für nächste Eingabe
+        else
+            print("⚠️ Bitte ein Wort eingeben.")
+        end
+    end)
+
+    -- Enter-Taste im TextBox
+    textBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            local term = textBox.Text
+            if string.len(term) > 0 then
+                searchAndAdd(term)
+                textBox.Text = ""
+            end
+        end
+    end)
+
+    -- Clear-Button
+    clearBtn.MouseButton1Click:Connect(function()
+        clearAllESP()
+    end)
+
+    -- Globale Variable für die Status-Aktualisierung
+    _G.__ESPStatusLabel = statusLabel
+    updateStatusLabel()
+end
+
+-- Aktualisiert den Status-Text in der UI
+local function updateStatusLabel()
+    local label = _G.__ESPStatusLabel
+    if not label then return end
+    if #activeTerms == 0 then
+        label.Text = "Aktiv: Keine"
+    else
+        label.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
     end
 end
 
 -- ===== NEUE OBJEKTE ÜBERWACHEN =====
 
--- Wenn neue Teile in die Welt eingefügt werden
 Workspace.DescendantAdded:Connect(function(instance)
-    task.wait(0.1)  -- Kurze Verzögerung, damit das Teil vollständig geladen ist
-    if IsTarget(instance) and not ESPedObjects[instance] then
-        CreateESP(instance)
+    task.wait(0.05)  -- Kurze Verzögerung für Stabilität
+    if (instance:IsA("BasePart") or instance:IsA("Model")) then
+        if not espMap[instance] and matchesActiveTerms(instance) then
+            createESP(instance)
+        end
     end
 end)
 
--- Wenn Teile gelöscht werden
-Workspace.DescendantRemoving:Connect(function(instance)
-    if ESPedObjects[instance] then
-        RemoveESP(instance)
-    end
-end)
+-- ===== SCRIPT START =====
 
--- ===== START =====
-
-print("🔍 Scanne nach Parts mit Text-ESP...")
-ScanForTargets()
-print("✅ Part-ESP erfolgreich geladen!")
-print("📦 Es werden Objekte mit Namen wie 'Chest', 'Door', 'Loot' etc. hervorgehoben.")
-print("⚙️  Passe die 'TargetNames'-Liste in der Config an, um eigene Objekte zu targetieren.")
+print("🚀 Starte Part-ESP mit UI...")
+createUI()
+print("✅ UI geladen. Gib ein Wort ein, um Teile hervorzuheben!")
