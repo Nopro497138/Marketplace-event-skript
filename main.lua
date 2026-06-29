@@ -1,15 +1,12 @@
 --[[
-    🔍 PART-ESP MIT UI (URSPRÜNGLICHE STRUKTUR + PFEILE + TOGGLE)
-    - Suchfeld + Hinzufügen + Löschen (wie gehabt)
-    - Pfeile ◀/▶ zum Wechseln der Parts (Kamera folgt)
-    - Toggle-Button zum Ein-/Ausblenden des gesamten ESPs
-    - Tracer nur wenn Drawing-API verfügbar
+    🔍 PART-ESP MIT VERBESSERTER SUCHE (findet ALLE Parts)
+    - Durchsucht das gesamte Spiel (game:GetDescendants())
+    - Zeigt Debug-Info an, wenn Parts gefunden werden
 ]]
 
 -- Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
 
 -- ===== KONFIGURATION =====
@@ -38,7 +35,7 @@ local espPartsList = {}
 local currentFocusIndex = 0
 local espVisible = true
 
--- ===== TRACER (nur wenn Drawing verfügbar) =====
+-- ===== TRACER =====
 local function createTracer(part)
     if not hasDrawing then return nil end
     if tracerObjects[part] then return end
@@ -150,7 +147,7 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
-    -- Tracer (falls verfügbar)
+    -- Tracer
     local tracer = nil
     if hasDrawing then
         tracer = createTracer(instance)
@@ -173,7 +170,6 @@ local function createESP(instance)
         if not data then return end
         
         while instance and instance.Parent and data.TextLabel do
-            -- Distanz
             local distance = "?"
             if CONFIG.ShowDistance then
                 local localChar = LocalPlayer.Character
@@ -186,14 +182,12 @@ local function createESP(instance)
                 end
             end
             
-            -- Text
             if CONFIG.ShowDistance then
                 data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
             else
                 data.TextLabel.Text = data.DisplayName
             end
             
-            -- Tracer nur wenn sichtbar und verfügbar
             if data.Tracer and espVisible and hasDrawing then
                 local localChar = LocalPlayer.Character
                 if localChar and data.Adornee then
@@ -355,7 +349,7 @@ local function updateNavLabel()
     end
 end
 
--- ===== SUCHFUNKTIONEN =====
+-- ===== SUCHFUNKTION (VERBESSERT) =====
 
 local function searchAndAdd(term)
     if not term or string.len(term) == 0 then return end
@@ -368,20 +362,43 @@ local function searchAndAdd(term)
     end
     table.insert(activeTerms, cleanTerm)
     print("🔍 Suche nach: '" .. term .. "'")
-    
+
+    -- Durchsuche das GESAMTE Spiel (alle Descendants)
+    local allObjects = game:GetDescendants()
     local count = 0
-    for _, instance in ipairs(Workspace:GetDescendants()) do
-        if (instance:IsA("BasePart") or instance:IsA("Model")) then
+    local totalPartsChecked = 0
+
+    for _, instance in ipairs(allObjects) do
+        -- Prüfe ob es ein Part oder Modell ist
+        if instance:IsA("BasePart") or instance:IsA("Model") then
+            totalPartsChecked = totalPartsChecked + 1
+            -- Nur wenn noch nicht ge-ESPt und Name enthält den Begriff
             if not espMap[instance] and matchesActiveTerms(instance) then
                 createESP(instance)
                 count = count + 1
+                print("✅ Gefunden: " .. instance.Name)
             end
         end
     end
+
+    print("🔎 Durchsuchte " .. totalPartsChecked .. " Teile/Modelle insgesamt.")
     updateStatusLabel()
     print("✅ " .. count .. " neue Objekte wurden zu ESP hinzugefügt.")
+    
     if count > 0 and currentFocusIndex == 0 then
         focusOnPart(1)
+    elseif count == 0 then
+        print("⚠️ Kein Part enthält das Wort '" .. term .. "'. Versuche es mit einem anderen Begriff oder schau in die Konsole, um verfügbare Part-Namen zu sehen.")
+        -- Optional: Liste der ersten 10 Part-Namen anzeigen
+        local sample = {}
+        for _, instance in ipairs(allObjects) do
+            if (instance:IsA("BasePart") or instance:IsA("Model")) and #sample < 10 then
+                table.insert(sample, instance.Name)
+            end
+        end
+        if #sample > 0 then
+            print("📋 Beispielhafte Part-Namen: " .. table.concat(sample, ", "))
+        end
     end
 end
 
@@ -397,7 +414,7 @@ local function clearAllESP()
     print("🧹 Alle ESPs wurden entfernt.")
 end
 
--- ===== UI ERSTELLEN (originalgetreu) =====
+-- ===== UI ERSTELLEN =====
 
 local function createUI()
     local playerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -410,10 +427,9 @@ local function createUI()
     screenGui.Parent = playerGui
     screenGui.Enabled = true
 
-    -- Haupt-Frame (Größe angepasst für zusätzliche Zeilen)
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 360, 0, 290)  -- Etwas höher für Toggle und Navigation
+    mainFrame.Size = UDim2.new(0, 360, 0, 290)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
     mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
     mainFrame.BackgroundTransparency = 0.1
@@ -428,7 +444,6 @@ local function createUI()
     corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = mainFrame
 
-    -- Titel (wie gehabt)
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 35)
     title.Position = UDim2.new(0, 0, 0, 0)
@@ -440,7 +455,6 @@ local function createUI()
     title.TextXAlignment = Enum.TextXAlignment.Center
     title.Parent = mainFrame
 
-    -- Eingabefeld (wie gehabt)
     local textBox = Instance.new("TextBox")
     textBox.Name = "SearchBox"
     textBox.Size = UDim2.new(1, -20, 0, 38)
@@ -459,7 +473,7 @@ local function createUI()
     boxCorner.CornerRadius = UDim.new(0, 5)
     boxCorner.Parent = textBox
 
-    -- ERSTE BUTTON-ZEILE (wie gehabt: Hinzufügen + Löschen)
+    -- Button-Zeile 1
     local buttonContainer1 = Instance.new("Frame")
     buttonContainer1.Name = "ButtonContainer1"
     buttonContainer1.Size = UDim2.new(1, 0, 0, 42)
@@ -499,7 +513,7 @@ local function createUI()
     clearCorner.CornerRadius = UDim.new(0, 5)
     clearCorner.Parent = clearBtn
 
-    -- ZWEITE BUTTON-ZEILE (Pfeile + Nav-Label)
+    -- Button-Zeile 2 (Pfeile)
     local buttonContainer2 = Instance.new("Frame")
     buttonContainer2.Name = "ButtonContainer2"
     buttonContainer2.Size = UDim2.new(1, 0, 0, 42)
@@ -552,7 +566,7 @@ local function createUI()
     nextCorner.CornerRadius = UDim.new(0, 5)
     nextCorner.Parent = nextBtn
 
-    -- TOGGLE-BUTTON (zentriert)
+    -- Toggle-Button
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Name = "ToggleBtn"
     toggleBtn.Size = UDim2.new(0.6, 0, 0, 38)
@@ -570,7 +584,7 @@ local function createUI()
     toggleCorner.CornerRadius = UDim.new(0, 5)
     toggleCorner.Parent = toggleBtn
 
-    -- STATUS (aktive Begriffe) – wie gehabt
+    -- Status (aktive Begriffe)
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
     statusLabel.Size = UDim2.new(1, -20, 0, 28)
@@ -585,7 +599,7 @@ local function createUI()
     statusLabel.Parent = mainFrame
     statusLabelRef = statusLabel
 
-    -- FOKUS-STATUS (Parts / Fokus) – wie gehabt
+    -- Fokus-Status
     local focusLabel = Instance.new("TextLabel")
     focusLabel.Name = "FocusLabel"
     focusLabel.Size = UDim2.new(1, -20, 0, 22)
@@ -635,16 +649,15 @@ local function createUI()
         toggleESP()
     end)
 
-    -- Initiale Aktualisierungen
     updateStatusLabel()
     updateFocusStatus()
     updateNavLabel()
-    print("✅ UI geladen. Pfeile zum Wechseln, Toggle zum Ein-/Ausblenden.")
+    print("✅ UI geladen. Gib einen Begriff ein, um Parts zu finden.")
 end
 
 -- ===== NEUE OBJEKTE ÜBERWACHEN =====
 
-Workspace.DescendantAdded:Connect(function(instance)
+game.DescendantAdded:Connect(function(instance)
     task.wait(0.05)
     if (instance:IsA("BasePart") or instance:IsA("Model")) then
         if not espMap[instance] and matchesActiveTerms(instance) then
@@ -655,6 +668,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit UI (originalgetreu + Pfeile + Toggle)...")
+print("🚀 Starte Part-ESP mit verbesserter Suche...")
 createUI()
-print("✅ Bereit. Gib einen Suchbegriff ein und nutze die Pfeile.")
+print("✅ Fertig. Gib einen Begriff ein – das Skript durchsucht das gesamte Spiel.")
