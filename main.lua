@@ -1,27 +1,55 @@
 --[[
-    🔍 PART-ESP MIT UI (FIXED)
-    Gib ein Wort ein, und alle Parts mit diesem Wort im Namen werden hervorgehoben.
-    GUI erscheint jetzt zuverlässig in PlayerGui.
+    🔍 PART-ESP MIT TRACERN & UI (Robuste Version)
+    Sucht nach Parts mit bestimmten Wörtern im Namen, hebt sie hervor
+    und zeichnet Tracer-Linien vom Bildschirmrand zu den Parts.
 ]]
 
+-- Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 
--- ===== 🎨 FARBEN & EINSTELLUNGEN =====
+-- ===== KONFIGURATION =====
 local CONFIG = {
     HighlightColor = Color3.fromRGB(0, 255, 200),
     OutlineColor = Color3.fromRGB(255, 255, 255),
     TextColor = Color3.fromRGB(255, 255, 255),
+    TracerColor = Color3.fromRGB(0, 200, 255),
+    TracerThickness = 1.5,
     TextSize = 18,
-    UpdateInterval = 0.15,
+    UpdateInterval = 0.1,
     ShowDistance = true,
     OffsetHeight = 2.5,
 }
 
 -- ===== INTERNER SPEICHER =====
-local activeTerms = {}
-local espMap = {}
+local activeTerms = {}          -- Aktive Suchbegriffe
+local espMap = {}               -- Part -> ESP-Daten
+local tracerObjects = {}        -- Part -> Tracer-Linie (Drawing Objekt)
+
+-- ===== DRAWING API (Für Tracer) =====
+local function createTracer(part)
+    if tracerObjects[part] then return end
+    
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Color = CONFIG.TracerColor
+    tracer.Thickness = CONFIG.TracerThickness
+    tracer.Transparency = 1
+    
+    tracerObjects[part] = tracer
+    return tracer
+end
+
+local function removeTracer(part)
+    local tracer = tracerObjects[part]
+    if tracer then
+        tracer:Remove()
+        tracerObjects[part] = nil
+    end
+end
 
 -- ===== HILFSFUNKTIONEN =====
 
@@ -57,6 +85,7 @@ local function createESP(instance)
     local adornee = getAdornee(instance)
     if not adornee then return end
 
+    -- 1. HIGHLIGHT (Glow)
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Search_Highlight"
     highlight.Adornee = instance
@@ -65,6 +94,7 @@ local function createESP(instance)
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = instance
 
+    -- 2. BILLBOARD (Text)
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "ESP_Search_Billboard"
     billboard.Adornee = adornee
@@ -86,18 +116,26 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
+    -- 3. TRACER (Linie)
+    local tracer = createTracer(instance)
+
+    -- Daten speichern
     espMap[instance] = {
         Highlight = highlight,
         Billboard = billboard,
         TextLabel = textLabel,
         Adornee = adornee,
         DisplayName = instance.Name,
+        Tracer = tracer,
     }
 
+    -- 4. UPDATE-SCHLEIFE (Distanz + Tracer)
     task.spawn(function()
         local data = espMap[instance]
         if not data then return end
+        
         while instance and instance.Parent and data.TextLabel do
+            -- Distanz berechnen
             local distance = "?"
             if CONFIG.ShowDistance then
                 local localChar = LocalPlayer.Character
@@ -109,8 +147,41 @@ local function createESP(instance)
                     end
                 end
             end
-            data.TextLabel.Text = (CONFIG.ShowDistance and (data.DisplayName .. "  |  " .. distance)) or data.DisplayName
+            
+            -- Text aktualisieren
+            if CONFIG.ShowDistance then
+                data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
+            else
+                data.TextLabel.Text = data.DisplayName
+            end
+            
+            -- Tracer aktualisieren (3D -> 2D Bildschirm)
+            if data.Tracer then
+                local localChar = LocalPlayer.Character
+                if localChar and data.Adornee then
+                    local head = localChar:FindFirstChild("Head")
+                    if head then
+                        -- Part-Position auf Bildschirm projizieren
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(data.Adornee.Position)
+                        
+                        if onScreen then
+                            -- Tracer vom unteren Bildschirmrand zum Part
+                            data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                            data.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                            data.Tracer.Visible = true
+                        else
+                            data.Tracer.Visible = false
+                        end
+                    end
+                end
+            end
+            
             task.wait(CONFIG.UpdateInterval)
+        end
+        
+        -- Aufräumen wenn Schleife endet
+        if instance then
+            removeTracer(instance)
         end
     end)
 end
@@ -120,6 +191,7 @@ local function removeESP(instance)
     if data then
         if data.Highlight then data.Highlight:Destroy() end
         if data.Billboard then data.Billboard:Destroy() end
+        removeTracer(instance)
         espMap[instance] = nil
     end
 end
@@ -174,50 +246,52 @@ local function updateStatusLabel()
     end
 end
 
--- ===== UI ERSTELLEN (in PlayerGui) =====
+-- ===== UI ERSTELLEN (Robuste Methode) =====
 
 local function createUI()
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then
-        playerGui = Instance.new("PlayerGui")
-        playerGui.Parent = LocalPlayer
-    end
-
-    -- Alte GUI löschen, falls vorhanden
+    -- Warten bis PlayerGui verfügbar ist
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    
+    -- Alte GUI löschen
     local oldGui = playerGui:FindFirstChild("PartSearchESP_GUI")
     if oldGui then oldGui:Destroy() end
 
+    -- ScreenGui erstellen
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "PartSearchESP_GUI"
     screenGui.ResetOnSpawn = false
     screenGui.Parent = playerGui
+    
+    -- WICHTIG: Sicherstellen dass die GUI sichtbar ist
+    screenGui.Enabled = true
 
     -- Haupt-Frame
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 320, 0, 180)
+    mainFrame.Size = UDim2.new(0, 340, 0, 200)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-    mainFrame.BackgroundTransparency = 0.15
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    mainFrame.BackgroundTransparency = 0.1
     mainFrame.BorderSizePixel = 1
-    mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 120)
+    mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 130)
     mainFrame.ClipsDescendants = true
     mainFrame.Draggable = true
     mainFrame.Active = true
     mainFrame.Parent = screenGui
 
+    -- Abgerundete Ecken
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = mainFrame
 
     -- Titel
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Size = UDim2.new(1, 0, 0, 35)
     title.Position = UDim2.new(0, 0, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "🔍 Part-ESP Suche"
+    title.Text = "🔍 Part-ESP + Tracer"
     title.TextColor3 = Color3.fromRGB(220, 220, 255)
-    title.TextSize = 18
+    title.TextSize = 20
     title.Font = Enum.Font.GothamBold
     title.TextXAlignment = Enum.TextXAlignment.Center
     title.Parent = mainFrame
@@ -225,27 +299,27 @@ local function createUI()
     -- Eingabefeld
     local textBox = Instance.new("TextBox")
     textBox.Name = "SearchBox"
-    textBox.Size = UDim2.new(1, -20, 0, 35)
-    textBox.Position = UDim2.new(0, 10, 0, 35)
-    textBox.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    textBox.Size = UDim2.new(1, -20, 0, 38)
+    textBox.Position = UDim2.new(0, 10, 0, 40)
+    textBox.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
     textBox.BorderSizePixel = 0
     textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
     textBox.TextSize = 16
     textBox.Font = Enum.Font.GothamMedium
     textBox.PlaceholderText = "Wort eingeben (z.B. 'Truhe')"
-    textBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 180)
+    textBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 190)
     textBox.ClearTextOnFocus = false
     textBox.Parent = mainFrame
 
     local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 4)
+    boxCorner.CornerRadius = UDim.new(0, 5)
     boxCorner.Parent = textBox
 
     -- Button-Container
     local buttonContainer = Instance.new("Frame")
     buttonContainer.Name = "ButtonContainer"
-    buttonContainer.Size = UDim2.new(1, 0, 0, 40)
-    buttonContainer.Position = UDim2.new(0, 0, 0, 75)
+    buttonContainer.Size = UDim2.new(1, 0, 0, 42)
+    buttonContainer.Position = UDim2.new(0, 0, 0, 83)
     buttonContainer.BackgroundTransparency = 1
     buttonContainer.Parent = mainFrame
 
@@ -254,16 +328,16 @@ local function createUI()
     searchBtn.Name = "SearchBtn"
     searchBtn.Size = UDim2.new(0.45, -5, 1, 0)
     searchBtn.Position = UDim2.new(0, 0, 0, 0)
-    searchBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 140)
+    searchBtn.BackgroundColor3 = Color3.fromRGB(0, 190, 150)
     searchBtn.BorderSizePixel = 0
     searchBtn.Text = "➕ Hinzufügen"
     searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    searchBtn.TextSize = 15
+    searchBtn.TextSize = 16
     searchBtn.Font = Enum.Font.GothamBold
     searchBtn.Parent = buttonContainer
 
     local searchCorner = Instance.new("UICorner")
-    searchCorner.CornerRadius = UDim.new(0, 4)
+    searchCorner.CornerRadius = UDim.new(0, 5)
     searchCorner.Parent = searchBtn
 
     -- Clear-Button
@@ -271,33 +345,32 @@ local function createUI()
     clearBtn.Name = "ClearBtn"
     clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
     clearBtn.Position = UDim2.new(0.55, 0, 0, 0)
-    clearBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(210, 60, 60)
     clearBtn.BorderSizePixel = 0
     clearBtn.Text = "🗑️ Alles entfernen"
     clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    clearBtn.TextSize = 15
+    clearBtn.TextSize = 16
     clearBtn.Font = Enum.Font.GothamBold
     clearBtn.Parent = buttonContainer
 
     local clearCorner = Instance.new("UICorner")
-    clearCorner.CornerRadius = UDim.new(0, 4)
+    clearCorner.CornerRadius = UDim.new(0, 5)
     clearCorner.Parent = clearBtn
 
     -- Status-Label
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
-    statusLabel.Size = UDim2.new(1, -20, 0, 35)
-    statusLabel.Position = UDim2.new(0, 10, 0, 125)
+    statusLabel.Size = UDim2.new(1, -20, 0, 45)
+    statusLabel.Position = UDim2.new(0, 10, 0, 135)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Aktiv: Keine"
-    statusLabel.TextColor3 = Color3.fromRGB(180, 180, 210)
+    statusLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
     statusLabel.TextSize = 14
     statusLabel.Font = Enum.Font.GothamMedium
     statusLabel.TextXAlignment = Enum.TextXAlignment.Left
     statusLabel.TextWrapped = true
     statusLabel.Parent = mainFrame
 
-    -- Referenz für Status-Updates
     statusLabelRef = statusLabel
 
     -- ===== EVENTS =====
@@ -342,6 +415,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit UI (PlayerGui)...")
+print("🚀 Starte Part-ESP mit Tracern und UI...")
 createUI()
 print("✅ Fertig. Gib ein Wort ein, um Teile hervorzuheben!")
