@@ -1,5 +1,8 @@
 --[[
-    🔍 PART-ESP MIT UI (KORRIGIERT - Highlight.Enabled statt Visible)
+    🔍 PART-ESP MIT UI (VOLLSTÄNDIG REPARIERT)
+    - Korrekte Funktionsreihenfolge
+    - Highlight.Enabled statt Visible
+    - Keine nil-Aufrufe mehr
 ]]
 
 -- Services
@@ -22,8 +25,10 @@ local CONFIG = {
     FocusHeightOffset = 2,
 }
 
+-- Prüfen ob Drawing-API verfügbar
 local hasDrawing = pcall(function() return Drawing.new("Line") end)
 
+-- ===== INTERNER SPEICHER =====
 local activeTerms = {}
 local espMap = {}
 local tracerObjects = {}
@@ -31,25 +36,46 @@ local espPartsList = {}
 local currentFocusIndex = 0
 local espVisible = true
 
--- ===== TRACER =====
-local function createTracer(part)
-    if not hasDrawing then return nil end
-    if tracerObjects[part] then return end
-    local tracer = Drawing.new("Line")
-    tracer.Visible = false
-    tracer.Color = CONFIG.TracerColor
-    tracer.Thickness = CONFIG.TracerThickness
-    tracer.Transparency = 1
-    tracerObjects[part] = tracer
-    return tracer
+-- Referenzen für UI-Elemente (werden später gesetzt)
+local statusLabelRef = nil
+local focusStatusLabel = nil
+local navLabelRef = nil
+local toggleButtonRef = nil
+
+-- ===== UI-UPDATE-FUNKTIONEN (werden VOR dem ESP-Kern definiert) =====
+
+local function updateStatusLabel()
+    if statusLabelRef then
+        if #activeTerms == 0 then
+            statusLabelRef.Text = "Aktiv: Keine"
+        else
+            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
+        end
+    end
 end
 
-local function removeTracer(part)
-    if not hasDrawing then return end
-    local tracer = tracerObjects[part]
-    if tracer then
-        tracer:Remove()
-        tracerObjects[part] = nil
+local function updateFocusStatus()
+    if focusStatusLabel then
+        if #espPartsList == 0 then
+            focusStatusLabel.Text = "Parts: 0 | Fokus: -"
+        else
+            local focusName = "Kein"
+            if currentFocusIndex > 0 and espPartsList[currentFocusIndex] then
+                focusName = espPartsList[currentFocusIndex].Name
+            end
+            focusStatusLabel.Text = "Parts: " .. #espPartsList .. " | Fokus: " .. focusName
+        end
+    end
+end
+
+local function updateNavLabel()
+    if navLabelRef then
+        if #espPartsList == 0 then
+            navLabelRef.Text = "Keine Parts"
+        else
+            local current = (currentFocusIndex > 0 and currentFocusIndex) or 1
+            navLabelRef.Text = "Part " .. current .. "/" .. #espPartsList
+        end
     end
 end
 
@@ -80,7 +106,30 @@ local function getAdornee(instance)
     return nil
 end
 
--- ===== ESP KERN =====
+-- ===== TRACER =====
+
+local function createTracer(part)
+    if not hasDrawing then return nil end
+    if tracerObjects[part] then return end
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Color = CONFIG.TracerColor
+    tracer.Thickness = CONFIG.TracerThickness
+    tracer.Transparency = 1
+    tracerObjects[part] = tracer
+    return tracer
+end
+
+local function removeTracer(part)
+    if not hasDrawing then return end
+    local tracer = tracerObjects[part]
+    if tracer then
+        tracer:Remove()
+        tracerObjects[part] = nil
+    end
+end
+
+-- ===== LISTEN-VERWALTUNG =====
 
 local function addPartToList(part)
     for i, p in ipairs(espPartsList) do
@@ -88,6 +137,7 @@ local function addPartToList(part)
     end
     table.insert(espPartsList, part)
     updateFocusStatus()
+    updateNavLabel()
 end
 
 local function removePartFromList(part)
@@ -103,21 +153,24 @@ local function removePartFromList(part)
         end
     end
     updateFocusStatus()
+    updateNavLabel()
 end
+
+-- ===== ESP KERN =====
 
 local function createESP(instance)
     if espMap[instance] then return end
     local adornee = getAdornee(instance)
     if not adornee then return end
 
-    -- Highlight (KORREKT: Enabled statt Visible)
+    -- Highlight (Enabled, nicht Visible)
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Search_Highlight"
     highlight.Adornee = instance
     highlight.FillColor = CONFIG.HighlightColor
     highlight.OutlineColor = CONFIG.OutlineColor
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Enabled = espVisible   -- <-- HIER
+    highlight.Enabled = espVisible
     highlight.Parent = instance
 
     -- Billboard
@@ -143,13 +196,16 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
+    -- Tracer
     local tracer = nil
     if hasDrawing then
         tracer = createTracer(instance)
     end
 
+    -- In Liste aufnehmen
     addPartToList(instance)
 
+    -- Daten speichern
     espMap[instance] = {
         Highlight = highlight,
         Billboard = billboard,
@@ -159,12 +215,13 @@ local function createESP(instance)
         Tracer = tracer,
     }
 
-    -- Update-Schleife
+    -- Update-Schleife (Distanz + Tracer)
     task.spawn(function()
         local data = espMap[instance]
         if not data then return end
         
         while instance and instance.Parent and data.TextLabel do
+            -- Distanz
             local distance = "?"
             if CONFIG.ShowDistance then
                 local localChar = LocalPlayer.Character
@@ -177,12 +234,14 @@ local function createESP(instance)
                 end
             end
             
+            -- Text
             if CONFIG.ShowDistance then
                 data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
             else
                 data.TextLabel.Text = data.DisplayName
             end
             
+            -- Tracer
             if data.Tracer and espVisible and hasDrawing then
                 local localChar = LocalPlayer.Character
                 if localChar and data.Adornee then
@@ -205,6 +264,7 @@ local function createESP(instance)
             task.wait(CONFIG.UpdateInterval)
         end
         
+        -- Aufräumen
         if instance then
             removeTracer(instance)
             removePartFromList(instance)
@@ -230,7 +290,7 @@ local function toggleESP()
     
     for instance, data in pairs(espMap) do
         if data.Highlight then
-            data.Highlight.Enabled = espVisible   -- <-- HIER
+            data.Highlight.Enabled = espVisible
         end
         if data.Billboard then
             data.Billboard.Enabled = espVisible
@@ -302,48 +362,6 @@ local function focusPrevious()
     focusOnPart(newIndex)
 end
 
--- ===== UI-STATUS =====
-
-local statusLabelRef = nil
-local focusStatusLabel = nil
-local navLabelRef = nil
-local toggleButtonRef = nil
-
-local function updateStatusLabel()
-    if statusLabelRef then
-        if #activeTerms == 0 then
-            statusLabelRef.Text = "Aktiv: Keine"
-        else
-            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
-        end
-    end
-end
-
-local function updateFocusStatus()
-    if focusStatusLabel then
-        if #espPartsList == 0 then
-            focusStatusLabel.Text = "Parts: 0 | Fokus: -"
-        else
-            local focusName = "Kein"
-            if currentFocusIndex > 0 and espPartsList[currentFocusIndex] then
-                focusName = espPartsList[currentFocusIndex].Name
-            end
-            focusStatusLabel.Text = "Parts: " .. #espPartsList .. " | Fokus: " .. focusName
-        end
-    end
-end
-
-local function updateNavLabel()
-    if navLabelRef then
-        if #espPartsList == 0 then
-            navLabelRef.Text = "Keine Parts"
-        else
-            local current = (currentFocusIndex > 0 and currentFocusIndex) or 1
-            navLabelRef.Text = "Part " .. current .. "/" .. #espPartsList
-        end
-    end
-end
-
 -- ===== SUCHFUNKTION =====
 
 local function searchAndAdd(term)
@@ -380,7 +398,8 @@ local function searchAndAdd(term)
     if count > 0 and currentFocusIndex == 0 then
         focusOnPart(1)
     elseif count == 0 then
-        print("⚠️ Kein Part enthält das Wort '" .. term .. "'. Versuche es mit einem anderen Begriff oder schau in die Konsole, um verfügbare Part-Namen zu sehen.")
+        print("⚠️ Kein Part enthält das Wort '" .. term .. "'. Versuche es mit einem anderen Begriff.")
+        -- Zeige Beispiele
         local sample = {}
         for _, instance in ipairs(allObjects) do
             if (instance:IsA("BasePart") or instance:IsA("Model")) and #sample < 10 then
@@ -604,7 +623,8 @@ local function createUI()
     focusLabel.Parent = mainFrame
     focusStatusLabel = focusLabel
 
-    -- Events
+    -- ===== EVENTS =====
+
     searchBtn.MouseButton1Click:Connect(function()
         local term = textBox.Text
         if string.len(term) > 0 then
@@ -639,6 +659,7 @@ local function createUI()
         toggleESP()
     end)
 
+    -- Initiale Aktualisierung
     updateStatusLabel()
     updateFocusStatus()
     updateNavLabel()
@@ -658,6 +679,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit korrigierter Highlight-Steuerung...")
+print("🚀 Starte Part-ESP (finale Version)...")
 createUI()
-print("✅ Fertig – jetzt sollte ESP ohne Fehler funktionieren.")
+print("✅ Bereit – jetzt sollte alles laufen. Gib ein Wort ein.")
