@@ -1,16 +1,15 @@
 --[[
-    🔍 PART-ESP MIT UI-NAVIGATION (Pfeile) & TOGGLE
-    - Suche Parts nach Namen (UI)
-    - Highlight + Text + Tracer
-    - Pfeile (◀ / ▶) zum Wechseln der Parts (Kamera folgt)
+    🔍 PART-ESP MIT UI (URSPRÜNGLICHE STRUKTUR + PFEILE + TOGGLE)
+    - Suchfeld + Hinzufügen + Löschen (wie gehabt)
+    - Pfeile ◀/▶ zum Wechseln der Parts (Kamera folgt)
     - Toggle-Button zum Ein-/Ausblenden des gesamten ESPs
+    - Tracer nur wenn Drawing-API verfügbar
 ]]
 
 -- Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 
 -- ===== KONFIGURATION =====
@@ -28,16 +27,20 @@ local CONFIG = {
     FocusHeightOffset = 2,
 }
 
+-- Prüfen ob Drawing-API verfügbar ist
+local hasDrawing = pcall(function() return Drawing.new("Line") end)
+
 -- ===== INTERNER SPEICHER =====
 local activeTerms = {}
 local espMap = {}
 local tracerObjects = {}
 local espPartsList = {}
 local currentFocusIndex = 0
-local espVisible = true  -- Toggle-Status
+local espVisible = true
 
--- ===== DRAWING API (Tracer) =====
+-- ===== TRACER (nur wenn Drawing verfügbar) =====
 local function createTracer(part)
+    if not hasDrawing then return nil end
     if tracerObjects[part] then return end
     local tracer = Drawing.new("Line")
     tracer.Visible = false
@@ -49,6 +52,7 @@ local function createTracer(part)
 end
 
 local function removeTracer(part)
+    if not hasDrawing then return end
     local tracer = tracerObjects[part]
     if tracer then
         tracer:Remove()
@@ -146,8 +150,11 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
-    -- Tracer
-    local tracer = createTracer(instance)
+    -- Tracer (falls verfügbar)
+    local tracer = nil
+    if hasDrawing then
+        tracer = createTracer(instance)
+    end
 
     addPartToList(instance)
 
@@ -166,6 +173,7 @@ local function createESP(instance)
         if not data then return end
         
         while instance and instance.Parent and data.TextLabel do
+            -- Distanz
             local distance = "?"
             if CONFIG.ShowDistance then
                 local localChar = LocalPlayer.Character
@@ -178,14 +186,15 @@ local function createESP(instance)
                 end
             end
             
+            -- Text
             if CONFIG.ShowDistance then
                 data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
             else
                 data.TextLabel.Text = data.DisplayName
             end
             
-            -- Tracer nur aktualisieren wenn sichtbar
-            if data.Tracer and espVisible then
+            -- Tracer nur wenn sichtbar und verfügbar
+            if data.Tracer and espVisible and hasDrawing then
                 local localChar = LocalPlayer.Character
                 if localChar and data.Adornee then
                     local head = localChar:FindFirstChild("Head")
@@ -225,12 +234,11 @@ local function removeESP(instance)
     end
 end
 
--- ===== TOGGLE-FUNKTION =====
+-- ===== TOGGLE =====
 
 local function toggleESP()
     espVisible = not espVisible
     
-    -- Alle Highlights und Billboards umschalten
     for instance, data in pairs(espMap) do
         if data.Highlight then
             data.Highlight.Visible = espVisible
@@ -238,14 +246,13 @@ local function toggleESP()
         if data.Billboard then
             data.Billboard.Enabled = espVisible
         end
-        if data.Tracer then
+        if data.Tracer and hasDrawing then
             if not espVisible then
                 data.Tracer.Visible = false
             end
         end
     end
     
-    -- Button-Text aktualisieren (wird über UI-Referenz gemacht)
     if toggleButtonRef then
         if espVisible then
             toggleButtonRef.Text = "👁️ ESP ausblenden"
@@ -255,7 +262,6 @@ local function toggleESP()
             toggleButtonRef.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
         end
     end
-    
     print("👁️ ESP " .. (espVisible and "eingeblendet" or "ausgeblendet"))
 end
 
@@ -292,6 +298,7 @@ local function focusOnPart(index)
     
     print("📷 Fokussiert auf: " .. part.Name .. " (" .. index .. "/" .. #espPartsList .. ")")
     updateFocusStatus()
+    updateNavLabel()
 end
 
 local function focusNext()
@@ -306,11 +313,22 @@ local function focusPrevious()
     focusOnPart(newIndex)
 end
 
--- ===== UI-STATUS UPDATE =====
+-- ===== UI-STATUS =====
 
+local statusLabelRef = nil
 local focusStatusLabel = nil
-local focusIndicatorLabel = nil
+local navLabelRef = nil
 local toggleButtonRef = nil
+
+local function updateStatusLabel()
+    if statusLabelRef then
+        if #activeTerms == 0 then
+            statusLabelRef.Text = "Aktiv: Keine"
+        else
+            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
+        end
+    end
+end
 
 local function updateFocusStatus()
     if focusStatusLabel then
@@ -324,30 +342,20 @@ local function updateFocusStatus()
             focusStatusLabel.Text = "Parts: " .. #espPartsList .. " | Fokus: " .. focusName
         end
     end
-    if focusIndicatorLabel then
-        if currentFocusIndex > 0 and espPartsList[currentFocusIndex] then
-            focusIndicatorLabel.Text = "▶ Fokussiert: " .. espPartsList[currentFocusIndex].Name
-            focusIndicatorLabel.TextColor3 = Color3.fromRGB(0, 255, 200)
+end
+
+local function updateNavLabel()
+    if navLabelRef then
+        if #espPartsList == 0 then
+            navLabelRef.Text = "Keine Parts"
         else
-            focusIndicatorLabel.Text = "Kein Part fokussiert (Pfeile nutzen)"
-            focusIndicatorLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+            local current = (currentFocusIndex > 0 and currentFocusIndex) or 1
+            navLabelRef.Text = "Part " .. current .. "/" .. #espPartsList
         end
     end
 end
 
 -- ===== SUCHFUNKTIONEN =====
-
-local statusLabelRef = nil
-
-local function updateStatusLabel()
-    if statusLabelRef then
-        if #activeTerms == 0 then
-            statusLabelRef.Text = "Aktiv: Keine"
-        else
-            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
-        end
-    end
-end
 
 local function searchAndAdd(term)
     if not term or string.len(term) == 0 then return end
@@ -385,10 +393,11 @@ local function clearAllESP()
     currentFocusIndex = 0
     updateStatusLabel()
     updateFocusStatus()
+    updateNavLabel()
     print("🧹 Alle ESPs wurden entfernt.")
 end
 
--- ===== UI ERSTELLEN =====
+-- ===== UI ERSTELLEN (originalgetreu) =====
 
 local function createUI()
     local playerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -401,10 +410,10 @@ local function createUI()
     screenGui.Parent = playerGui
     screenGui.Enabled = true
 
-    -- Haupt-Frame (etwas höher für neue Buttons)
+    -- Haupt-Frame (Größe angepasst für zusätzliche Zeilen)
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 380, 0, 290)
+    mainFrame.Size = UDim2.new(0, 360, 0, 290)  -- Etwas höher für Toggle und Navigation
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
     mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
     mainFrame.BackgroundTransparency = 0.1
@@ -419,7 +428,7 @@ local function createUI()
     corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = mainFrame
 
-    -- Titel
+    -- Titel (wie gehabt)
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 35)
     title.Position = UDim2.new(0, 0, 0, 0)
@@ -431,7 +440,7 @@ local function createUI()
     title.TextXAlignment = Enum.TextXAlignment.Center
     title.Parent = mainFrame
 
-    -- Eingabefeld
+    -- Eingabefeld (wie gehabt)
     local textBox = Instance.new("TextBox")
     textBox.Name = "SearchBox"
     textBox.Size = UDim2.new(1, -20, 0, 38)
@@ -450,7 +459,7 @@ local function createUI()
     boxCorner.CornerRadius = UDim.new(0, 5)
     boxCorner.Parent = textBox
 
-    -- Erste Button-Zeile (Suchen + Löschen)
+    -- ERSTE BUTTON-ZEILE (wie gehabt: Hinzufügen + Löschen)
     local buttonContainer1 = Instance.new("Frame")
     buttonContainer1.Name = "ButtonContainer1"
     buttonContainer1.Size = UDim2.new(1, 0, 0, 42)
@@ -458,7 +467,6 @@ local function createUI()
     buttonContainer1.BackgroundTransparency = 1
     buttonContainer1.Parent = mainFrame
 
-    -- Suchen-Button
     local searchBtn = Instance.new("TextButton")
     searchBtn.Name = "SearchBtn"
     searchBtn.Size = UDim2.new(0.45, -5, 1, 0)
@@ -475,7 +483,6 @@ local function createUI()
     searchCorner.CornerRadius = UDim.new(0, 5)
     searchCorner.Parent = searchBtn
 
-    -- Clear-Button
     local clearBtn = Instance.new("TextButton")
     clearBtn.Name = "ClearBtn"
     clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
@@ -492,7 +499,7 @@ local function createUI()
     clearCorner.CornerRadius = UDim.new(0, 5)
     clearCorner.Parent = clearBtn
 
-    -- Zweite Button-Zeile (Navigation + Toggle)
+    -- ZWEITE BUTTON-ZEILE (Pfeile + Nav-Label)
     local buttonContainer2 = Instance.new("Frame")
     buttonContainer2.Name = "ButtonContainer2"
     buttonContainer2.Size = UDim2.new(1, 0, 0, 42)
@@ -500,7 +507,6 @@ local function createUI()
     buttonContainer2.BackgroundTransparency = 1
     buttonContainer2.Parent = mainFrame
 
-    -- Pfeil links (vorheriges Part)
     local prevBtn = Instance.new("TextButton")
     prevBtn.Name = "PrevBtn"
     prevBtn.Size = UDim2.new(0.15, 0, 1, 0)
@@ -517,20 +523,19 @@ local function createUI()
     prevCorner.CornerRadius = UDim.new(0, 5)
     prevCorner.Parent = prevBtn
 
-    -- Fokus-Status (zentriert zwischen den Pfeilen)
-    local focusNavLabel = Instance.new("TextLabel")
-    focusNavLabel.Name = "FocusNavLabel"
-    focusNavLabel.Size = UDim2.new(0.5, 0, 1, 0)
-    focusNavLabel.Position = UDim2.new(0.2, 0, 0, 0)
-    focusNavLabel.BackgroundTransparency = 1
-    focusNavLabel.Text = "Part 1/5"
-    focusNavLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
-    focusNavLabel.TextSize = 16
-    focusNavLabel.Font = Enum.Font.GothamBold
-    focusNavLabel.TextXAlignment = Enum.TextXAlignment.Center
-    focusNavLabel.Parent = buttonContainer2
+    local navLabel = Instance.new("TextLabel")
+    navLabel.Name = "NavLabel"
+    navLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    navLabel.Position = UDim2.new(0.2, 0, 0, 0)
+    navLabel.BackgroundTransparency = 1
+    navLabel.Text = "Keine Parts"
+    navLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
+    navLabel.TextSize = 16
+    navLabel.Font = Enum.Font.GothamBold
+    navLabel.TextXAlignment = Enum.TextXAlignment.Center
+    navLabel.Parent = buttonContainer2
+    navLabelRef = navLabel
 
-    -- Pfeil rechts (nächstes Part)
     local nextBtn = Instance.new("TextButton")
     nextBtn.Name = "NextBtn"
     nextBtn.Size = UDim2.new(0.15, 0, 1, 0)
@@ -547,7 +552,7 @@ local function createUI()
     nextCorner.CornerRadius = UDim.new(0, 5)
     nextCorner.Parent = nextBtn
 
-    -- Dritte Zeile: Toggle-Button (zentriert)
+    -- TOGGLE-BUTTON (zentriert)
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Name = "ToggleBtn"
     toggleBtn.Size = UDim2.new(0.6, 0, 0, 38)
@@ -565,7 +570,7 @@ local function createUI()
     toggleCorner.CornerRadius = UDim.new(0, 5)
     toggleCorner.Parent = toggleBtn
 
-    -- Status (aktive Begriffe)
+    -- STATUS (aktive Begriffe) – wie gehabt
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
     statusLabel.Size = UDim2.new(1, -20, 0, 28)
@@ -580,7 +585,7 @@ local function createUI()
     statusLabel.Parent = mainFrame
     statusLabelRef = statusLabel
 
-    -- Fokus-Status (Parts-Anzahl + aktueller Fokus)
+    -- FOKUS-STATUS (Parts / Fokus) – wie gehabt
     local focusLabel = Instance.new("TextLabel")
     focusLabel.Name = "FocusLabel"
     focusLabel.Size = UDim2.new(1, -20, 0, 22)
@@ -618,40 +623,23 @@ local function createUI()
         clearAllESP()
     end)
 
-    -- Navigation: Vorheriges Part
     prevBtn.MouseButton1Click:Connect(function()
         focusPrevious()
-        updateNavLabel(focusNavLabel)
     end)
 
-    -- Navigation: Nächstes Part
     nextBtn.MouseButton1Click:Connect(function()
         focusNext()
-        updateNavLabel(focusNavLabel)
     end)
 
-    -- Toggle-Button
     toggleBtn.MouseButton1Click:Connect(function()
         toggleESP()
     end)
 
-    -- Nav-Label initial aktualisieren
-    updateNavLabel(focusNavLabel)
+    -- Initiale Aktualisierungen
+    updateStatusLabel()
     updateFocusStatus()
-    print("✅ UI erstellt. Nutze die Pfeile zum Navigieren, Toggle zum Ein-/Ausblenden.")
-end
-
--- ===== NAV-LABEL UPDATE =====
-
-local function updateNavLabel(label)
-    if label then
-        if #espPartsList == 0 then
-            label.Text = "Keine Parts"
-        else
-            local current = (currentFocusIndex > 0 and currentFocusIndex) or 1
-            label.Text = "Part " .. current .. "/" .. #espPartsList
-        end
-    end
+    updateNavLabel()
+    print("✅ UI geladen. Pfeile zum Wechseln, Toggle zum Ein-/Ausblenden.")
 end
 
 -- ===== NEUE OBJEKTE ÜBERWACHEN =====
@@ -667,6 +655,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit UI-Navigation & Toggle...")
+print("🚀 Starte Part-ESP mit UI (originalgetreu + Pfeile + Toggle)...")
 createUI()
-print("✅ Fertig. Nutze die Pfeile (◀/▶) zum Wechseln, Toggle zum Ein-/Ausblenden.")
+print("✅ Bereit. Gib einen Suchbegriff ein und nutze die Pfeile.")
