@@ -1,7 +1,5 @@
 --[[
-    🔍 PART-ESP MIT VERBESSERTER SUCHE (findet ALLE Parts)
-    - Durchsucht das gesamte Spiel (game:GetDescendants())
-    - Zeigt Debug-Info an, wenn Parts gefunden werden
+    🔍 PART-ESP MIT UI (KORRIGIERT - Highlight.Enabled statt Visible)
 ]]
 
 -- Services
@@ -24,10 +22,8 @@ local CONFIG = {
     FocusHeightOffset = 2,
 }
 
--- Prüfen ob Drawing-API verfügbar ist
 local hasDrawing = pcall(function() return Drawing.new("Line") end)
 
--- ===== INTERNER SPEICHER =====
 local activeTerms = {}
 local espMap = {}
 local tracerObjects = {}
@@ -114,14 +110,14 @@ local function createESP(instance)
     local adornee = getAdornee(instance)
     if not adornee then return end
 
-    -- Highlight
+    -- Highlight (KORREKT: Enabled statt Visible)
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Search_Highlight"
     highlight.Adornee = instance
     highlight.FillColor = CONFIG.HighlightColor
     highlight.OutlineColor = CONFIG.OutlineColor
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Visible = espVisible
+    highlight.Enabled = espVisible   -- <-- HIER
     highlight.Parent = instance
 
     -- Billboard
@@ -147,7 +143,6 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
-    -- Tracer
     local tracer = nil
     if hasDrawing then
         tracer = createTracer(instance)
@@ -235,7 +230,7 @@ local function toggleESP()
     
     for instance, data in pairs(espMap) do
         if data.Highlight then
-            data.Highlight.Visible = espVisible
+            data.Highlight.Enabled = espVisible   -- <-- HIER
         end
         if data.Billboard then
             data.Billboard.Enabled = espVisible
@@ -349,7 +344,7 @@ local function updateNavLabel()
     end
 end
 
--- ===== SUCHFUNKTION (VERBESSERT) =====
+-- ===== SUCHFUNKTION =====
 
 local function searchAndAdd(term)
     if not term or string.len(term) == 0 then return end
@@ -363,16 +358,13 @@ local function searchAndAdd(term)
     table.insert(activeTerms, cleanTerm)
     print("🔍 Suche nach: '" .. term .. "'")
 
-    -- Durchsuche das GESAMTE Spiel (alle Descendants)
     local allObjects = game:GetDescendants()
     local count = 0
     local totalPartsChecked = 0
 
     for _, instance in ipairs(allObjects) do
-        -- Prüfe ob es ein Part oder Modell ist
         if instance:IsA("BasePart") or instance:IsA("Model") then
             totalPartsChecked = totalPartsChecked + 1
-            -- Nur wenn noch nicht ge-ESPt und Name enthält den Begriff
             if not espMap[instance] and matchesActiveTerms(instance) then
                 createESP(instance)
                 count = count + 1
@@ -389,7 +381,6 @@ local function searchAndAdd(term)
         focusOnPart(1)
     elseif count == 0 then
         print("⚠️ Kein Part enthält das Wort '" .. term .. "'. Versuche es mit einem anderen Begriff oder schau in die Konsole, um verfügbare Part-Namen zu sehen.")
-        -- Optional: Liste der ersten 10 Part-Namen anzeigen
         local sample = {}
         for _, instance in ipairs(allObjects) do
             if (instance:IsA("BasePart") or instance:IsA("Model")) and #sample < 10 then
@@ -584,7 +575,7 @@ local function createUI()
     toggleCorner.CornerRadius = UDim.new(0, 5)
     toggleCorner.Parent = toggleBtn
 
-    -- Status (aktive Begriffe)
+    -- Status
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
     statusLabel.Size = UDim2.new(1, -20, 0, 28)
@@ -613,8 +604,7 @@ local function createUI()
     focusLabel.Parent = mainFrame
     focusStatusLabel = focusLabel
 
-    -- ===== EVENTS =====
-
+    -- Events
     searchBtn.MouseButton1Click:Connect(function()
         local term = textBox.Text
         if string.len(term) > 0 then
@@ -668,6 +658,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit verbesserter Suche...")
+print("🚀 Starte Part-ESP mit korrigierter Highlight-Steuerung...")
 createUI()
-print("✅ Fertig. Gib einen Begriff ein – das Skript durchsucht das gesamte Spiel.")
+print("✅ Fertig – jetzt sollte ESP ohne Fehler funktionieren.")
