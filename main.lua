@@ -1,32 +1,30 @@
 --[[
-    🔍 PART-ESP MIT UI
+    🔍 PART-ESP MIT UI (FIXED)
     Gib ein Wort ein, und alle Parts mit diesem Wort im Namen werden hervorgehoben.
-    Mehrere Begriffe sind möglich (werden gesammelt).
+    GUI erscheint jetzt zuverlässig in PlayerGui.
 ]]
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
-local CoreGui = game:GetService("CoreGui")
 
 -- ===== 🎨 FARBEN & EINSTELLUNGEN =====
 local CONFIG = {
-    HighlightColor = Color3.fromRGB(0, 255, 200),  -- Türkis-Glow
-    OutlineColor = Color3.fromRGB(255, 255, 255),  -- Weiße Umrandung
-    TextColor = Color3.fromRGB(255, 255, 255),     -- Textfarbe
+    HighlightColor = Color3.fromRGB(0, 255, 200),
+    OutlineColor = Color3.fromRGB(255, 255, 255),
+    TextColor = Color3.fromRGB(255, 255, 255),
     TextSize = 18,
     UpdateInterval = 0.15,
     ShowDistance = true,
-    OffsetHeight = 2.5,  -- Höhe des Textes über dem Part
+    OffsetHeight = 2.5,
 }
 
 -- ===== INTERNER SPEICHER =====
-local activeTerms = {}      -- Aktive Suchbegriffe (z.B. {"Truhe", "Kiste"})
-local espMap = {}           -- Tabelle: Objekt -> seine ESP-Daten
+local activeTerms = {}
+local espMap = {}
 
 -- ===== HILFSFUNKTIONEN =====
 
--- Prüft, ob ein Objekt einen der aktiven Begriffe im Namen hat
 local function matchesActiveTerms(instance)
     local lowerName = string.lower(instance.Name)
     for _, term in ipairs(activeTerms) do
@@ -37,7 +35,6 @@ local function matchesActiveTerms(instance)
     return false
 end
 
--- Findet einen passenden Part (Adornee) für das Billboard
 local function getAdornee(instance)
     if instance:IsA("BasePart") then
         return instance
@@ -53,14 +50,13 @@ local function getAdornee(instance)
     return nil
 end
 
--- ===== ESP KERN-FUNKTIONEN =====
+-- ===== ESP KERN =====
 
 local function createESP(instance)
-    if espMap[instance] then return end  -- Bereits vorhanden
+    if espMap[instance] then return end
     local adornee = getAdornee(instance)
     if not adornee then return end
 
-    -- 1. HIGHLIGHT (Glow)
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Search_Highlight"
     highlight.Adornee = instance
@@ -69,7 +65,6 @@ local function createESP(instance)
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = instance
 
-    -- 2. BILLBOARD (Text)
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "ESP_Search_Billboard"
     billboard.Adornee = adornee
@@ -91,20 +86,17 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
-    -- Daten speichern
     espMap[instance] = {
         Highlight = highlight,
         Billboard = billboard,
         TextLabel = textLabel,
         Adornee = adornee,
-        DisplayName = instance.Name,  -- Zeigt den Namen des Objekts an
+        DisplayName = instance.Name,
     }
 
-    -- 3. DISTANZ-UPDATE-SCHLEIFE (läuft parallel)
     task.spawn(function()
         local data = espMap[instance]
         if not data then return end
-        
         while instance and instance.Parent and data.TextLabel do
             local distance = "?"
             if CONFIG.ShowDistance then
@@ -117,13 +109,7 @@ local function createESP(instance)
                     end
                 end
             end
-            
-            if CONFIG.ShowDistance then
-                data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
-            else
-                data.TextLabel.Text = data.DisplayName
-            end
-            
+            data.TextLabel.Text = (CONFIG.ShowDistance and (data.DisplayName .. "  |  " .. distance)) or data.DisplayName
             task.wait(CONFIG.UpdateInterval)
         end
     end)
@@ -138,13 +124,10 @@ local function removeESP(instance)
     end
 end
 
--- ===== SUCHFUNKTION =====
+-- ===== SUCHFUNKTIONEN =====
 
--- Durchsucht die ganze Welt nach neuen Objekten mit dem neuen Begriff
 local function searchAndAdd(term)
     if not term or string.len(term) == 0 then return end
-    
-    -- Begriff bereinigen und speichern (wenn nicht schon vorhanden)
     local cleanTerm = string.lower(term)
     for _, existing in ipairs(activeTerms) do
         if existing == cleanTerm then
@@ -155,24 +138,19 @@ local function searchAndAdd(term)
     table.insert(activeTerms, cleanTerm)
     print("🔍 Suche nach: '" .. term .. "'")
     
-    -- Alle Objekte im Workspace durchgehen
     local count = 0
     for _, instance in ipairs(Workspace:GetDescendants()) do
         if (instance:IsA("BasePart") or instance:IsA("Model")) then
-            -- Nur wenn es noch nicht ge-ESPt ist UND den Begriff enthält
             if not espMap[instance] and matchesActiveTerms(instance) then
                 createESP(instance)
                 count = count + 1
             end
         end
     end
-    
-    -- Status in der UI aktualisieren
     updateStatusLabel()
     print("✅ " .. count .. " neue Objekte wurden zu ESP hinzugefügt.")
 end
 
--- Entfernt ALLE ESPs und leert die Suchbegriffe
 local function clearAllESP()
     for instance, _ in pairs(espMap) do
         removeESP(instance)
@@ -182,15 +160,39 @@ local function clearAllESP()
     print("🧹 Alle ESPs wurden entfernt.")
 end
 
--- ===== UI ERSTELLEN =====
+-- ===== UI-STATUS UPDATE =====
+
+local statusLabelRef = nil
+
+local function updateStatusLabel()
+    if statusLabelRef then
+        if #activeTerms == 0 then
+            statusLabelRef.Text = "Aktiv: Keine"
+        else
+            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
+        end
+    end
+end
+
+-- ===== UI ERSTELLEN (in PlayerGui) =====
 
 local function createUI()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then
+        playerGui = Instance.new("PlayerGui")
+        playerGui.Parent = LocalPlayer
+    end
+
+    -- Alte GUI löschen, falls vorhanden
+    local oldGui = playerGui:FindFirstChild("PartSearchESP_GUI")
+    if oldGui then oldGui:Destroy() end
+
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "PartSearchESP_GUI"
     screenGui.ResetOnSpawn = false
-    screenGui.Parent = CoreGui
+    screenGui.Parent = playerGui
 
-    -- Haupt-Frame (verschiebbar)
+    -- Haupt-Frame
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
     mainFrame.Size = UDim2.new(0, 320, 0, 180)
@@ -204,14 +206,12 @@ local function createUI()
     mainFrame.Active = true
     mainFrame.Parent = screenGui
 
-    -- Abgerundete Ecken
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
     -- Titel
     local title = Instance.new("TextLabel")
-    title.Name = "Title"
     title.Size = UDim2.new(1, 0, 0, 30)
     title.Position = UDim2.new(0, 0, 0, 0)
     title.BackgroundTransparency = 1
@@ -222,7 +222,7 @@ local function createUI()
     title.TextXAlignment = Enum.TextXAlignment.Center
     title.Parent = mainFrame
 
-    -- Eingabefeld (TextBox)
+    -- Eingabefeld
     local textBox = Instance.new("TextBox")
     textBox.Name = "SearchBox"
     textBox.Size = UDim2.new(1, -20, 0, 35)
@@ -241,7 +241,7 @@ local function createUI()
     boxCorner.CornerRadius = UDim.new(0, 4)
     boxCorner.Parent = textBox
 
-    -- Button-Container (horizontal)
+    -- Button-Container
     local buttonContainer = Instance.new("Frame")
     buttonContainer.Name = "ButtonContainer"
     buttonContainer.Size = UDim2.new(1, 0, 0, 40)
@@ -249,7 +249,7 @@ local function createUI()
     buttonContainer.BackgroundTransparency = 1
     buttonContainer.Parent = mainFrame
 
-    -- "Suchen"-Button
+    -- Suchen-Button
     local searchBtn = Instance.new("TextButton")
     searchBtn.Name = "SearchBtn"
     searchBtn.Size = UDim2.new(0.45, -5, 1, 0)
@@ -266,7 +266,7 @@ local function createUI()
     searchCorner.CornerRadius = UDim.new(0, 4)
     searchCorner.Parent = searchBtn
 
-    -- "Alles löschen"-Button
+    -- Clear-Button
     local clearBtn = Instance.new("TextButton")
     clearBtn.Name = "ClearBtn"
     clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
@@ -283,7 +283,7 @@ local function createUI()
     clearCorner.CornerRadius = UDim.new(0, 4)
     clearCorner.Parent = clearBtn
 
-    -- Status-Label (zeigt aktive Begriffe)
+    -- Status-Label
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
     statusLabel.Size = UDim2.new(1, -20, 0, 35)
@@ -297,20 +297,21 @@ local function createUI()
     statusLabel.TextWrapped = true
     statusLabel.Parent = mainFrame
 
+    -- Referenz für Status-Updates
+    statusLabelRef = statusLabel
+
     -- ===== EVENTS =====
 
-    -- Suchen-Button
     searchBtn.MouseButton1Click:Connect(function()
         local term = textBox.Text
         if string.len(term) > 0 then
             searchAndAdd(term)
-            textBox.Text = ""  -- Feld leeren für nächste Eingabe
+            textBox.Text = ""
         else
             print("⚠️ Bitte ein Wort eingeben.")
         end
     end)
 
-    -- Enter-Taste im TextBox
     textBox.FocusLost:Connect(function(enterPressed)
         if enterPressed then
             local term = textBox.Text
@@ -321,31 +322,17 @@ local function createUI()
         end
     end)
 
-    -- Clear-Button
     clearBtn.MouseButton1Click:Connect(function()
         clearAllESP()
     end)
 
-    -- Globale Variable für die Status-Aktualisierung
-    _G.__ESPStatusLabel = statusLabel
-    updateStatusLabel()
-end
-
--- Aktualisiert den Status-Text in der UI
-local function updateStatusLabel()
-    local label = _G.__ESPStatusLabel
-    if not label then return end
-    if #activeTerms == 0 then
-        label.Text = "Aktiv: Keine"
-    else
-        label.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
-    end
+    print("✅ UI erfolgreich in PlayerGui erstellt!")
 end
 
 -- ===== NEUE OBJEKTE ÜBERWACHEN =====
 
 Workspace.DescendantAdded:Connect(function(instance)
-    task.wait(0.05)  -- Kurze Verzögerung für Stabilität
+    task.wait(0.05)
     if (instance:IsA("BasePart") or instance:IsA("Model")) then
         if not espMap[instance] and matchesActiveTerms(instance) then
             createESP(instance)
@@ -353,8 +340,8 @@ Workspace.DescendantAdded:Connect(function(instance)
     end
 end)
 
--- ===== SCRIPT START =====
+-- ===== START =====
 
-print("🚀 Starte Part-ESP mit UI...")
+print("🚀 Starte Part-ESP mit UI (PlayerGui)...")
 createUI()
-print("✅ UI geladen. Gib ein Wort ein, um Teile hervorzuheben!")
+print("✅ Fertig. Gib ein Wort ein, um Teile hervorzuheben!")
