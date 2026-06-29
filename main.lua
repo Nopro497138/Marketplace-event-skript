@@ -1,7 +1,9 @@
 --[[
-    🔍 PART-ESP MIT TRACERN & UI (Robuste Version)
-    Sucht nach Parts mit bestimmten Wörtern im Namen, hebt sie hervor
-    und zeichnet Tracer-Linien vom Bildschirmrand zu den Parts.
+    🔍 PART-ESP MIT TRACERN, KAMERA-FOKUS & PART-WECHSEL
+    - Suche Parts nach Namen (UI)
+    - Highlight + Text + Tracer
+    - F: Kamera auf aktuelles Part fokussieren
+    - Q / E: Durch Parts blättern
 ]]
 
 -- Services
@@ -9,6 +11,7 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 
 -- ===== KONFIGURATION =====
@@ -22,23 +25,26 @@ local CONFIG = {
     UpdateInterval = 0.1,
     ShowDistance = true,
     OffsetHeight = 2.5,
+    FocusDistance = 8,          -- Abstand der Kamera vom Part
+    FocusHeightOffset = 2,      -- Zusätzliche Höhe über dem Part
 }
 
 -- ===== INTERNER SPEICHER =====
-local activeTerms = {}          -- Aktive Suchbegriffe
+local activeTerms = {}
 local espMap = {}               -- Part -> ESP-Daten
-local tracerObjects = {}        -- Part -> Tracer-Linie (Drawing Objekt)
+local tracerObjects = {}        -- Part -> Tracer-Linie
+local espPartsList = {}         -- Geordnete Liste aller ge-ESPten Parts
+local currentFocusIndex = 0     -- 0 = keiner fokussiert
+local isFocusing = false        -- Verhindert doppelte Fokussierung
 
--- ===== DRAWING API (Für Tracer) =====
+-- ===== DRAWING API (Tracer) =====
 local function createTracer(part)
     if tracerObjects[part] then return end
-    
     local tracer = Drawing.new("Line")
     tracer.Visible = false
     tracer.Color = CONFIG.TracerColor
     tracer.Thickness = CONFIG.TracerThickness
     tracer.Transparency = 1
-    
     tracerObjects[part] = tracer
     return tracer
 end
@@ -80,12 +86,35 @@ end
 
 -- ===== ESP KERN =====
 
+local function addPartToList(part)
+    for i, p in ipairs(espPartsList) do
+        if p == part then return end
+    end
+    table.insert(espPartsList, part)
+    updateFocusStatus()
+end
+
+local function removePartFromList(part)
+    for i, p in ipairs(espPartsList) do
+        if p == part then
+            table.remove(espPartsList, i)
+            if currentFocusIndex == i then
+                currentFocusIndex = 0
+            elseif currentFocusIndex > i then
+                currentFocusIndex = currentFocusIndex - 1
+            end
+            break
+        end
+    end
+    updateFocusStatus()
+end
+
 local function createESP(instance)
     if espMap[instance] then return end
     local adornee = getAdornee(instance)
     if not adornee then return end
 
-    -- 1. HIGHLIGHT (Glow)
+    -- Highlight
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Search_Highlight"
     highlight.Adornee = instance
@@ -94,7 +123,7 @@ local function createESP(instance)
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = instance
 
-    -- 2. BILLBOARD (Text)
+    -- Billboard
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "ESP_Search_Billboard"
     billboard.Adornee = adornee
@@ -116,8 +145,11 @@ local function createESP(instance)
     textLabel.Text = "Lade..."
     textLabel.Parent = billboard
 
-    -- 3. TRACER (Linie)
+    -- Tracer
     local tracer = createTracer(instance)
+
+    -- In Liste aufnehmen
+    addPartToList(instance)
 
     -- Daten speichern
     espMap[instance] = {
@@ -129,13 +161,13 @@ local function createESP(instance)
         Tracer = tracer,
     }
 
-    -- 4. UPDATE-SCHLEIFE (Distanz + Tracer)
+    -- Update-Schleife für Distanz & Tracer
     task.spawn(function()
         local data = espMap[instance]
         if not data then return end
         
         while instance and instance.Parent and data.TextLabel do
-            -- Distanz berechnen
+            -- Distanz
             local distance = "?"
             if CONFIG.ShowDistance then
                 local localChar = LocalPlayer.Character
@@ -148,24 +180,21 @@ local function createESP(instance)
                 end
             end
             
-            -- Text aktualisieren
+            -- Text
             if CONFIG.ShowDistance then
                 data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
             else
                 data.TextLabel.Text = data.DisplayName
             end
             
-            -- Tracer aktualisieren (3D -> 2D Bildschirm)
+            -- Tracer
             if data.Tracer then
                 local localChar = LocalPlayer.Character
                 if localChar and data.Adornee then
                     local head = localChar:FindFirstChild("Head")
                     if head then
-                        -- Part-Position auf Bildschirm projizieren
                         local screenPos, onScreen = Camera:WorldToViewportPoint(data.Adornee.Position)
-                        
                         if onScreen then
-                            -- Tracer vom unteren Bildschirmrand zum Part
                             data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
                             data.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
                             data.Tracer.Visible = true
@@ -179,9 +208,10 @@ local function createESP(instance)
             task.wait(CONFIG.UpdateInterval)
         end
         
-        -- Aufräumen wenn Schleife endet
+        -- Aufräumen
         if instance then
             removeTracer(instance)
+            removePartFromList(instance)
         end
     end)
 end
@@ -193,6 +223,86 @@ local function removeESP(instance)
         if data.Billboard then data.Billboard:Destroy() end
         removeTracer(instance)
         espMap[instance] = nil
+        removePartFromList(instance)
+    end
+end
+
+-- ===== KAMERA-FOKUS =====
+
+local function focusOnPart(index)
+    if #espPartsList == 0 then
+        print("⚠️ Keine Parts zum Fokussieren vorhanden.")
+        return
+    end
+    if index < 1 then index = 1 end
+    if index > #espPartsList then index = #espPartsList end
+    
+    currentFocusIndex = index
+    local part = espPartsList[index]
+    if not part or not part.Parent then
+        print("⚠️ Part existiert nicht mehr.")
+        return
+    end
+    
+    local adornee = getAdornee(part)
+    if not adornee then return end
+    
+    -- Kamera-Position berechnen: von aktueller Kamera-Position aus in Richtung Part
+    local camPos = Camera.CFrame.Position
+    local targetPos = adornee.Position
+    local direction = (targetPos - camPos).Unit
+    -- Falls Kamera zu nah am Part, nimm Standard-Richtung
+    if (targetPos - camPos).Magnitude < 1 then
+        direction = Vector3.new(0, 1, 0)  -- von oben
+    end
+    -- Neue Kameraposition: Part-Position - Richtung * Distanz + Höhenoffset
+    local newPos = targetPos - direction * CONFIG.FocusDistance
+    newPos = newPos + Vector3.new(0, CONFIG.FocusHeightOffset, 0)
+    
+    -- Kamera setzen
+    Camera.CFrame = CFrame.new(newPos, targetPos)
+    
+    print("📷 Fokussiert auf: " .. part.Name .. " (" .. index .. "/" .. #espPartsList .. ")")
+    updateFocusStatus()
+end
+
+local function focusNext()
+    if #espPartsList == 0 then return end
+    local newIndex = (currentFocusIndex % #espPartsList) + 1
+    focusOnPart(newIndex)
+end
+
+local function focusPrevious()
+    if #espPartsList == 0 then return end
+    local newIndex = ((currentFocusIndex - 2) % #espPartsList) + 1
+    focusOnPart(newIndex)
+end
+
+-- ===== UI-STATUS UPDATE =====
+
+local focusStatusLabel = nil
+local focusIndicatorLabel = nil
+
+local function updateFocusStatus()
+    if focusStatusLabel then
+        if #espPartsList == 0 then
+            focusStatusLabel.Text = "Parts: 0 | Fokus: -"
+        else
+            local focusName = "Kein"
+            if currentFocusIndex > 0 and espPartsList[currentFocusIndex] then
+                focusName = espPartsList[currentFocusIndex].Name
+            end
+            focusStatusLabel.Text = "Parts: " .. #espPartsList .. " | Fokus: " .. focusName
+        end
+    end
+    if focusIndicatorLabel then
+        if currentFocusIndex > 0 and espPartsList[currentFocusIndex] then
+            focusIndicatorLabel.Text = "▶ Fokussiert: " .. espPartsList[currentFocusIndex].Name
+            focusIndicatorLabel.TextColor3 = Color3.fromRGB(0, 255, 200)
+        else
+            focusIndicatorLabel.Text = "Kein Part fokussiert (drücke F)"
+            focusIndicatorLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
     end
 end
 
@@ -221,6 +331,9 @@ local function searchAndAdd(term)
     end
     updateStatusLabel()
     print("✅ " .. count .. " neue Objekte wurden zu ESP hinzugefügt.")
+    if count > 0 and currentFocusIndex == 0 then
+        focusOnPart(1)  -- Automatisch erstes Part fokussieren
+    end
 end
 
 local function clearAllESP()
@@ -228,11 +341,13 @@ local function clearAllESP()
         removeESP(instance)
     end
     activeTerms = {}
+    currentFocusIndex = 0
     updateStatusLabel()
+    updateFocusStatus()
     print("🧹 Alle ESPs wurden entfernt.")
 end
 
--- ===== UI-STATUS UPDATE =====
+-- ===== UI-STATUS UPDATE (für Suchbegriffe) =====
 
 local statusLabelRef = nil
 
@@ -246,29 +361,23 @@ local function updateStatusLabel()
     end
 end
 
--- ===== UI ERSTELLEN (Robuste Methode) =====
+-- ===== UI ERSTELLEN =====
 
 local function createUI()
-    -- Warten bis PlayerGui verfügbar ist
     local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-    
-    -- Alte GUI löschen
     local oldGui = playerGui:FindFirstChild("PartSearchESP_GUI")
     if oldGui then oldGui:Destroy() end
 
-    -- ScreenGui erstellen
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "PartSearchESP_GUI"
     screenGui.ResetOnSpawn = false
     screenGui.Parent = playerGui
-    
-    -- WICHTIG: Sicherstellen dass die GUI sichtbar ist
     screenGui.Enabled = true
 
-    -- Haupt-Frame
+    -- Haupt-Frame (etwas größer für mehr Infos)
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 340, 0, 200)
+    mainFrame.Size = UDim2.new(0, 360, 0, 250)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
     mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
     mainFrame.BackgroundTransparency = 0.1
@@ -279,7 +388,6 @@ local function createUI()
     mainFrame.Active = true
     mainFrame.Parent = screenGui
 
-    -- Abgerundete Ecken
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 10)
     corner.Parent = mainFrame
@@ -289,9 +397,9 @@ local function createUI()
     title.Size = UDim2.new(1, 0, 0, 35)
     title.Position = UDim2.new(0, 0, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "🔍 Part-ESP + Tracer"
+    title.Text = "🔍 Part-ESP + Tracer + Kamera"
     title.TextColor3 = Color3.fromRGB(220, 220, 255)
-    title.TextSize = 20
+    title.TextSize = 18
     title.Font = Enum.Font.GothamBold
     title.TextXAlignment = Enum.TextXAlignment.Center
     title.Parent = mainFrame
@@ -343,8 +451,8 @@ local function createUI()
     -- Clear-Button
     local clearBtn = Instance.new("TextButton")
     clearBtn.Name = "ClearBtn"
-    clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
-    clearBtn.Position = UDim2.new(0.55, 0, 0, 0)
+    clearBtn.Size = UDim.new(0.45, -5, 1, 0)
+    clearBtn.Position = UDim.new(0.55, 0, 0, 0)
     clearBtn.BackgroundColor3 = Color3.fromRGB(210, 60, 60)
     clearBtn.BorderSizePixel = 0
     clearBtn.Text = "🗑️ Alles entfernen"
@@ -357,11 +465,11 @@ local function createUI()
     clearCorner.CornerRadius = UDim.new(0, 5)
     clearCorner.Parent = clearBtn
 
-    -- Status-Label
+    -- Status (aktive Begriffe)
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
-    statusLabel.Size = UDim2.new(1, -20, 0, 45)
-    statusLabel.Position = UDim2.new(0, 10, 0, 135)
+    statusLabel.Size = UDim2.new(1, -20, 0, 30)
+    statusLabel.Position = UDim2.new(0, 10, 0, 130)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Aktiv: Keine"
     statusLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
@@ -370,8 +478,44 @@ local function createUI()
     statusLabel.TextXAlignment = Enum.TextXAlignment.Left
     statusLabel.TextWrapped = true
     statusLabel.Parent = mainFrame
-
     statusLabelRef = statusLabel
+
+    -- Trennlinie
+    local line = Instance.new("Frame")
+    line.Size = UDim2.new(1, -20, 0, 1)
+    line.Position = UDim2.new(0, 10, 0, 165)
+    line.BackgroundColor3 = Color3.fromRGB(80, 80, 130)
+    line.BackgroundTransparency = 0.5
+    line.Parent = mainFrame
+
+    -- Fokus-Status (Parts-Anzahl + aktueller Fokus)
+    local focusLabel = Instance.new("TextLabel")
+    focusLabel.Name = "FocusLabel"
+    focusLabel.Size = UDim2.new(1, -20, 0, 25)
+    focusLabel.Position = UDim2.new(0, 10, 0, 175)
+    focusLabel.BackgroundTransparency = 1
+    focusLabel.Text = "Parts: 0 | Fokus: -"
+    focusLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
+    focusLabel.TextSize = 14
+    focusLabel.Font = Enum.Font.GothamMedium
+    focusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    focusLabel.Parent = mainFrame
+    focusStatusLabel = focusLabel
+
+    -- Fokus-Indikator (welches Part)
+    local indicator = Instance.new("TextLabel")
+    indicator.Name = "Indicator"
+    indicator.Size = UDim2.new(1, -20, 0, 30)
+    indicator.Position = UDim2.new(0, 10, 0, 205)
+    indicator.BackgroundTransparency = 1
+    indicator.Text = "Kein Part fokussiert (drücke F)"
+    indicator.TextColor3 = Color3.fromRGB(200, 200, 200)
+    indicator.TextSize = 14
+    indicator.Font = Enum.Font.GothamMedium
+    indicator.TextXAlignment = Enum.TextXAlignment.Left
+    indicator.TextWrapped = true
+    indicator.Parent = mainFrame
+    focusIndicatorLabel = indicator
 
     -- ===== EVENTS =====
 
@@ -380,8 +524,6 @@ local function createUI()
         if string.len(term) > 0 then
             searchAndAdd(term)
             textBox.Text = ""
-        else
-            print("⚠️ Bitte ein Wort eingeben.")
         end
     end)
 
@@ -399,8 +541,29 @@ local function createUI()
         clearAllESP()
     end)
 
-    print("✅ UI erfolgreich in PlayerGui erstellt!")
+    updateFocusStatus()
+    print("✅ UI erstellt. Steuerung: F = Fokus, Q/E = Part wechseln")
 end
+
+-- ===== TASTATUR-STEUERUNG =====
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.F then
+        if #espPartsList > 0 then
+            if currentFocusIndex == 0 then
+                focusOnPart(1)
+            else
+                focusOnPart(currentFocusIndex)
+            end
+        end
+    elseif input.KeyCode == Enum.KeyCode.E then
+        focusNext()
+    elseif input.KeyCode == Enum.KeyCode.Q then
+        focusPrevious()
+    end
+end)
 
 -- ===== NEUE OBJEKTE ÜBERWACHEN =====
 
@@ -415,6 +578,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit Tracern und UI...")
+print("🚀 Starte Part-ESP mit Tracern, Kamera & Wechselfunktion...")
 createUI()
-print("✅ Fertig. Gib ein Wort ein, um Teile hervorzuheben!")
+print("✅ Fertig. Steuerung: F = Fokussieren, Q/E = Wechseln")
