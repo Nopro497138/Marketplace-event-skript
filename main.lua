@@ -1,254 +1,217 @@
-print("========================================")
-print("📦 Marketplace Event Logger (für Executor)")
-print("========================================")
+--[[
+    ROBLOX - PART / OBJEKT ESP (Text + Highlight)
+    Hebt bestimmte Teile (z.B. Truhen, Türen, Items) hervor und zeigt Namen + Distanz an.
+    Keine Spieler-ESP!
+]]
 
 local Players = game:GetService("Players")
-local MarketplaceService = game:GetService("MarketplaceService")
-local player = Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
-if not player then
-    print("⏳ Warte auf LocalPlayer...")
-    repeat wait() until Players.LocalPlayer
-    player = Players.LocalPlayer
-end
-print("👤 Spieler: " .. player.Name)
-
--- ========== GUI IN COREGUI ERSTELLEN ==========
-local function createGUI()
-    print("🛠️ Erstelle GUI in CoreGui...")
+-- ===== 📝 KONFIGURATION =====
+local CONFIG = {
+    -- Modus: "WHITELIST" (bestimmte Namen), "ATTRIBUTE" (Teile mit einem bestimmten Attribut), "ALL" (ALLE Teile - Vorsicht bei Performance!)
+    Mode = "WHITELIST",
     
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "MarketplaceLogger"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = game:GetService("CoreGui")
+    -- Für WHITELIST: Teile/Modelle, die diesen Text im Namen enthalten (Groß-/Kleinschreibung egal)
+    TargetNames = {"Chest", "Truhe", "Loot", "Door", "Tür", "Button", "Schalter", "Item"},
+    
+    -- Für ATTRIBUTE: Name des Attributes, das das Teil haben muss (z.B. "DisplayName" oder "Text")
+    -- Wenn gesetzt, wird der Wert dieses Attributes als Anzeigetext verwendet.
+    TargetAttribute = "ESP_Text",
+    
+    -- 🎨 Farben
+    HighlightColor = Color3.fromRGB(0, 255, 200),  -- Türkis-Glow
+    OutlineColor = Color3.fromRGB(255, 255, 255),  -- Weiße Umrandung
+    TextColor = Color3.fromRGB(255, 255, 255),     -- Weißer Text
+    TextSize = 18,                                 -- Schriftgröße
+    
+    -- Einstellungen
+    ShowDistance = true,        -- Soll die Entfernung angezeigt werden?
+    UpdateInterval = 0.15,      -- Wie oft die Distanz aktualisiert wird (Sekunden)
+}
 
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 400, 0, 500)
-    mainFrame.Position = UDim2.new(0.5, -200, 0.5, -250)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-    mainFrame.BackgroundTransparency = 0.2
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Active = true
-    mainFrame.Draggable = true
-    mainFrame.Parent = screenGui
+-- ===== INTERNE VARIABLEN =====
+local ESPedObjects = {}  -- Tabelle, um bereits behandelte Objekte zu speichern
 
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 40)
-    title.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-    title.BackgroundTransparency = 0
-    title.BorderSizePixel = 0
-    title.Text = "📦 Marketplace Event Log"
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.TextSize = 18
-    title.Font = Enum.Font.GothamBold
-    title.Parent = mainFrame
+-- ===== HILFSFUNKTIONEN =====
 
-    local logContainer = Instance.new("ScrollingFrame")
-    logContainer.Name = "LogContainer"
-    logContainer.Size = UDim2.new(1, -20, 1, -100)
-    logContainer.Position = UDim2.new(0, 10, 0, 50)
-    logContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-    logContainer.BackgroundTransparency = 0.5
-    logContainer.BorderSizePixel = 0
-    logContainer.ScrollBarThickness = 6
-    logContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-    logContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    logContainer.Parent = mainFrame
+-- Prüft, ob ein Objekt ge-ESPt werden soll
+local function IsTarget(instance)
+    -- Nur BaseParts (Teile) oder Modelle (Gruppen von Teilen) beachten
+    if not (instance:IsA("BasePart") or instance:IsA("Model")) then return false end
+    
+    -- Terrain ausschließen (Performance)
+    if instance:IsA("BasePart") and instance.Name == "Terrain" then return false end
+    
+    -- Versteckte/ungefährliche Teile ignorieren (optional)
+    if instance:IsA("BasePart") and instance.Material == Enum.Material.Water then return false end
 
-    local clearButton = Instance.new("TextButton")
-    clearButton.Size = UDim2.new(0, 120, 0, 35)
-    clearButton.Position = UDim2.new(0, 10, 1, -45)
-    clearButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-    clearButton.BorderSizePixel = 0
-    clearButton.Text = "🗑️ Clear Logs"
-    clearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    clearButton.TextSize = 14
-    clearButton.Font = Enum.Font.Gotham
-    clearButton.Parent = mainFrame
-
-    local executeButton = Instance.new("TextButton")
-    executeButton.Size = UDim2.new(0, 120, 0, 35)
-    executeButton.Position = UDim2.new(1, -130, 1, -45)
-    executeButton.BackgroundColor3 = Color3.fromRGB(40, 150, 40)
-    executeButton.BorderSizePixel = 0
-    executeButton.Text = "▶️ Execute Selected"
-    executeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    executeButton.TextSize = 14
-    executeButton.Font = Enum.Font.Gotham
-    executeButton.Parent = mainFrame
-
-    print("✅ GUI erfolgreich erstellt (CoreGui).")
-    return {
-        ScreenGui = screenGui,
-        MainFrame = mainFrame,
-        LogContainer = logContainer,
-        ClearButton = clearButton,
-        ExecuteButton = executeButton
-    }
-end
-
--- GUI erstellen
-local gui = createGUI()
-if not gui then
-    warn("❌ GUI konnte nicht erstellt werden – Skript wird beendet.")
-    return
-end
-
-local logContainer = gui.LogContainer
-local logs = {}
-local selectedIndex = nil
-
--- ========== HILFSFUNKTIONEN ==========
-local function getTimestamp()
-    return os.date("%H:%M:%S")
-end
-
-local function addLogToGUI(logEntry, index)
-    local label = Instance.new("TextButton")
-    label.Name = "LogEntry_" .. index
-    label.Size = UDim2.new(1, -10, 0, 30)
-    label.Position = UDim2.new(0, 5, 0, (index - 1) * 32)
-    label.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-    label.BackgroundTransparency = 0.2
-    label.BorderSizePixel = 0
-    label.TextColor3 = Color3.fromRGB(220, 220, 220)
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Font = Enum.Font.Gotham
-    label.AutoButtonColor = false
-
-    local productId = logEntry.data and logEntry.data.productId or "?"
-    local status = logEntry.executed and "✅" or "⏳"
-    label.Text = string.format("[%s] %s | Produkt: %s %s",
-        logEntry.timestamp,
-        logEntry.eventType,
-        productId,
-        status
-    )
-
-    label.MouseButton1Click:Connect(function()
-        selectedIndex = index
-        for _, child in pairs(logContainer:GetChildren()) do
-            if child:IsA("TextButton") then
-                child.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+    if CONFIG.Mode == "ALL" then
+        return true
+    end
+    
+    if CONFIG.Mode == "WHITELIST" then
+        local lowerName = string.lower(instance.Name)
+        for _, target in ipairs(CONFIG.TargetNames) do
+            if string.find(lowerName, string.lower(target)) then
+                return true
             end
         end
-        label.BackgroundColor3 = Color3.fromRGB(60, 60, 120)
-        print("[Logger] Ausgewählt: Index " .. index)
-    end)
-
-    label.Parent = logContainer
-end
-
-local function updateLogStatus(index)
-    local label = logContainer:FindFirstChild("LogEntry_" .. index)
-    if label and logs[index] then
-        local status = logs[index].executed and "✅" or "⏳"
-        local productId = logs[index].data and logs[index].data.productId or "?"
-        label.Text = string.format("[%s] %s | Produkt: %s %s",
-            logs[index].timestamp,
-            logs[index].eventType,
-            productId,
-            status
-        )
+        return false
     end
-end
-
-local function addLog(eventType, data)
-    local logEntry = {
-        timestamp = getTimestamp(),
-        eventType = eventType,
-        data = data,
-        executed = false
-    }
-    table.insert(logs, logEntry)
-    local index = #logs
-    addLogToGUI(logEntry, index)
-    print("[Logger] Neuer Log: " .. eventType .. " (Index " .. index .. ")")
-end
-
--- ========== MARKETPLACE SERVICE HOOK ==========
-print("🔄 Versuche MarketplaceService.ProcessReceipt zu überschreiben...")
-
-local hookSuccess = pcall(function()
-    MarketplaceService.ProcessReceipt = function(receiptInfo)
-        print("[Logger] 🔔 Kauf erkannt! ProductId: " .. tostring(receiptInfo.ProductId))
-        local logData = {
-            productId = receiptInfo.ProductId,
-            purchaseId = receiptInfo.PurchaseId,
-            placeId = receiptInfo.PlaceId,
-            currencyType = receiptInfo.CurrencyType,
-            price = receiptInfo.Price,
-            assetId = receiptInfo.AssetId
-        }
-        addLog("Purchase", logData)
-        -- Immer genehmigen (Standard)
-        return Enum.ProductPurchaseDecision.PurchaseGranted
+    
+    if CONFIG.Mode == "ATTRIBUTE" then
+        return instance:GetAttribute(CONFIG.TargetAttribute) ~= nil
     end
-end)
-
-if hookSuccess then
-    print("✅ ProcessReceipt erfolgreich überschrieben.")
-else
-    print("⚠️ ProcessReceipt konnte nicht überschrieben werden (möglicherweise schreibgeschützt).")
-    print("💡 Du kannst trotzdem manuell Logs mit 'addLog()' hinzufügen.")
+    
+    return false
 end
 
--- ========== BUTTON-FUNKTIONEN ==========
-gui.ClearButton.MouseButton1Click:Connect(function()
-    for _, child in pairs(logContainer:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
+-- Holt den anzuzeigenden Text für ein Objekt
+local function GetDisplayText(instance)
+    if CONFIG.Mode == "ATTRIBUTE" then
+        local attr = instance:GetAttribute(CONFIG.TargetAttribute)
+        if attr then return tostring(attr) end
+    end
+    return instance.Name  -- Fallback: Der Name des Parts
+end
+
+-- Findet einen "Adornee"-Part für das Billboard (braucht einen konkreten Part)
+local function GetAdornee(instance)
+    if instance:IsA("BasePart") then
+        return instance
+    elseif instance:IsA("Model") then
+        -- Versuche zuerst den PrimaryPart, sonst nimm den ersten Part
+        local primary = instance.PrimaryPart
+        if primary then return primary end
+        for _, child in ipairs(instance:GetChildren()) do
+            if child:IsA("BasePart") then
+                return child
+            end
         end
     end
-    logs = {}
-    selectedIndex = nil
-    print("[Logger] Alle Logs gelöscht.")
+    return nil
+end
+
+-- ===== ESP ERSTELLEN & ENTFERNEN =====
+
+local function CreateESP(instance)
+    if ESPedObjects[instance] then return end  -- Schon vorhanden
+    local adornee = GetAdornee(instance)
+    if not adornee then return end
+
+    -- 1. HIGHLIGHT (Glow um das ganze Modell / Part)
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Part_Highlight"
+    highlight.Adornee = instance  -- Kann ein Part oder Model sein
+    highlight.FillColor = CONFIG.HighlightColor
+    highlight.OutlineColor = CONFIG.OutlineColor
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = instance
+
+    -- 2. BILLBOARD (Text über dem Objekt)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Part_Billboard"
+    billboard.Adornee = adornee
+    billboard.Size = UDim2.new(0, 250, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)  -- Höhe über dem Objekt
+    billboard.AlwaysOnTop = true
+    billboard.Parent = instance
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "ESP_Part_Text"
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextColor3 = CONFIG.TextColor
+    textLabel.TextStrokeTransparency = 0
+    textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)  -- Schwarze Kontur
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.TextScaled = false
+    textLabel.TextSize = CONFIG.TextSize
+    textLabel.Text = "Lade..."
+    textLabel.Parent = billboard
+
+    -- Objekt in der Tabelle speichern
+    ESPedObjects[instance] = {
+        Highlight = highlight,
+        Billboard = billboard,
+        TextLabel = textLabel,
+        Adornee = adornee,
+        DisplayName = GetDisplayText(instance)
+    }
+
+    -- 3. UPDATE-SCHLEIFE für Distanz und Text
+    task.spawn(function()
+        local data = ESPedObjects[instance]
+        if not data then return end
+        
+        while instance and instance.Parent and data.TextLabel do
+            local distance = "?"
+            if CONFIG.ShowDistance then
+                local localChar = LocalPlayer.Character
+                if localChar then
+                    local head = localChar:FindFirstChild("Head")
+                    if head and data.Adornee then
+                        local dist = (data.Adornee.Position - head.Position).Magnitude
+                        distance = string.format("%.1f", dist) .. "m"
+                    end
+                end
+            end
+            
+            if CONFIG.ShowDistance then
+                data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
+            else
+                data.TextLabel.Text = data.DisplayName
+            end
+            
+            task.wait(CONFIG.UpdateInterval)
+        end
+    end)
+end
+
+local function RemoveESP(instance)
+    local data = ESPedObjects[instance]
+    if data then
+        if data.Highlight then data.Highlight:Destroy() end
+        if data.Billboard then data.Billboard:Destroy() end
+        ESPedObjects[instance] = nil
+    end
+end
+
+-- ===== WELT-SCANNER (Findet Objekte) =====
+
+-- Durchsucht das gesamte Workspace nach neuen Zielen
+local function ScanForTargets()
+    for _, instance in ipairs(Workspace:GetDescendants()) do
+        if IsTarget(instance) and not ESPedObjects[instance] then
+            CreateESP(instance)
+        end
+    end
+end
+
+-- ===== NEUE OBJEKTE ÜBERWACHEN =====
+
+-- Wenn neue Teile in die Welt eingefügt werden
+Workspace.DescendantAdded:Connect(function(instance)
+    task.wait(0.1)  -- Kurze Verzögerung, damit das Teil vollständig geladen ist
+    if IsTarget(instance) and not ESPedObjects[instance] then
+        CreateESP(instance)
+    end
 end)
 
-gui.ExecuteButton.MouseButton1Click:Connect(function()
-    if not selectedIndex then
-        print("[Logger] Kein Eintrag ausgewählt!")
-        return
+-- Wenn Teile gelöscht werden
+Workspace.DescendantRemoving:Connect(function(instance)
+    if ESPedObjects[instance] then
+        RemoveESP(instance)
     end
-    local logEntry = logs[selectedIndex]
-    if not logEntry then
-        print("[Logger] Eintrag nicht gefunden!")
-        return
-    end
-    if logEntry.executed then
-        print("[Logger] Dieser Eintrag wurde bereits ausgeführt!")
-        return
-    end
-
-    local data = logEntry.data
-    if logEntry.eventType == "Purchase" then
-        print(string.format("[Logger] ▶️ Führe Kauf erneut aus: Produkt %s", data.productId))
-        -- Beispiel: Kurze Benachrichtigung
-        local notif = Instance.new("TextLabel")
-        notif.Size = UDim2.new(0, 300, 0, 40)
-        notif.Position = UDim2.new(0.5, -150, 0.8, 0)
-        notif.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        notif.BackgroundTransparency = 0.3
-        notif.Text = "✅ Kauf erneut ausgeführt! (Produkt " .. data.productId .. ")"
-        notif.TextColor3 = Color3.fromRGB(255, 255, 255)
-        notif.TextSize = 16
-        notif.Font = Enum.Font.GothamBold
-        notif.Parent = gui.ScreenGui
-        game:GetService("Debris"):AddItem(notif, 3)
-    end
-
-    logEntry.executed = true
-    updateLogStatus(selectedIndex)
-    print("[Logger] Event ausgeführt (Index " .. selectedIndex .. ")")
 end)
 
--- ========== TEST-EINTRAG HINZUFÜGEN ==========
-wait(0.5)
-addLog("Purchase", { productId = 123456, price = 100 })
-addLog("Purchase", { productId = 789012, price = 200 })
+-- ===== START =====
 
-print("✅ Skript vollständig geladen. GUI sollte sichtbar sein!")
-print("📌 Test-Logs wurden hinzugefügt. Kaufe etwas im Spiel, um echte Logs zu sehen.")
-print("========================================")
+print("🔍 Scanne nach Parts mit Text-ESP...")
+ScanForTargets()
+print("✅ Part-ESP erfolgreich geladen!")
+print("📦 Es werden Objekte mit Namen wie 'Chest', 'Door', 'Loot' etc. hervorgehoben.")
+print("⚙️  Passe die 'TargetNames'-Liste in der Config an, um eigene Objekte zu targetieren.")
