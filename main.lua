@@ -1,9 +1,9 @@
 --[[
-    🔍 PART-ESP MIT TRACERN, KAMERA-FOKUS & PART-WECHSEL
+    🔍 PART-ESP MIT UI-NAVIGATION (Pfeile) & TOGGLE
     - Suche Parts nach Namen (UI)
     - Highlight + Text + Tracer
-    - F: Kamera auf aktuelles Part fokussieren
-    - Q / E: Durch Parts blättern
+    - Pfeile (◀ / ▶) zum Wechseln der Parts (Kamera folgt)
+    - Toggle-Button zum Ein-/Ausblenden des gesamten ESPs
 ]]
 
 -- Services
@@ -11,7 +11,6 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 
 -- ===== KONFIGURATION =====
@@ -25,17 +24,17 @@ local CONFIG = {
     UpdateInterval = 0.1,
     ShowDistance = true,
     OffsetHeight = 2.5,
-    FocusDistance = 8,          -- Abstand der Kamera vom Part
-    FocusHeightOffset = 2,      -- Zusätzliche Höhe über dem Part
+    FocusDistance = 8,
+    FocusHeightOffset = 2,
 }
 
 -- ===== INTERNER SPEICHER =====
 local activeTerms = {}
-local espMap = {}               -- Part -> ESP-Daten
-local tracerObjects = {}        -- Part -> Tracer-Linie
-local espPartsList = {}         -- Geordnete Liste aller ge-ESPten Parts
-local currentFocusIndex = 0     -- 0 = keiner fokussiert
-local isFocusing = false        -- Verhindert doppelte Fokussierung
+local espMap = {}
+local tracerObjects = {}
+local espPartsList = {}
+local currentFocusIndex = 0
+local espVisible = true  -- Toggle-Status
 
 -- ===== DRAWING API (Tracer) =====
 local function createTracer(part)
@@ -121,6 +120,7 @@ local function createESP(instance)
     highlight.FillColor = CONFIG.HighlightColor
     highlight.OutlineColor = CONFIG.OutlineColor
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Visible = espVisible
     highlight.Parent = instance
 
     -- Billboard
@@ -130,6 +130,7 @@ local function createESP(instance)
     billboard.Size = UDim2.new(0, 250, 0, 50)
     billboard.StudsOffset = Vector3.new(0, CONFIG.OffsetHeight, 0)
     billboard.AlwaysOnTop = true
+    billboard.Enabled = espVisible
     billboard.Parent = instance
 
     local textLabel = Instance.new("TextLabel")
@@ -148,10 +149,8 @@ local function createESP(instance)
     -- Tracer
     local tracer = createTracer(instance)
 
-    -- In Liste aufnehmen
     addPartToList(instance)
 
-    -- Daten speichern
     espMap[instance] = {
         Highlight = highlight,
         Billboard = billboard,
@@ -161,13 +160,12 @@ local function createESP(instance)
         Tracer = tracer,
     }
 
-    -- Update-Schleife für Distanz & Tracer
+    -- Update-Schleife
     task.spawn(function()
         local data = espMap[instance]
         if not data then return end
         
         while instance and instance.Parent and data.TextLabel do
-            -- Distanz
             local distance = "?"
             if CONFIG.ShowDistance then
                 local localChar = LocalPlayer.Character
@@ -180,15 +178,14 @@ local function createESP(instance)
                 end
             end
             
-            -- Text
             if CONFIG.ShowDistance then
                 data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
             else
                 data.TextLabel.Text = data.DisplayName
             end
             
-            -- Tracer
-            if data.Tracer then
+            -- Tracer nur aktualisieren wenn sichtbar
+            if data.Tracer and espVisible then
                 local localChar = LocalPlayer.Character
                 if localChar and data.Adornee then
                     local head = localChar:FindFirstChild("Head")
@@ -203,12 +200,13 @@ local function createESP(instance)
                         end
                     end
                 end
+            elseif data.Tracer then
+                data.Tracer.Visible = false
             end
             
             task.wait(CONFIG.UpdateInterval)
         end
         
-        -- Aufräumen
         if instance then
             removeTracer(instance)
             removePartFromList(instance)
@@ -225,6 +223,40 @@ local function removeESP(instance)
         espMap[instance] = nil
         removePartFromList(instance)
     end
+end
+
+-- ===== TOGGLE-FUNKTION =====
+
+local function toggleESP()
+    espVisible = not espVisible
+    
+    -- Alle Highlights und Billboards umschalten
+    for instance, data in pairs(espMap) do
+        if data.Highlight then
+            data.Highlight.Visible = espVisible
+        end
+        if data.Billboard then
+            data.Billboard.Enabled = espVisible
+        end
+        if data.Tracer then
+            if not espVisible then
+                data.Tracer.Visible = false
+            end
+        end
+    end
+    
+    -- Button-Text aktualisieren (wird über UI-Referenz gemacht)
+    if toggleButtonRef then
+        if espVisible then
+            toggleButtonRef.Text = "👁️ ESP ausblenden"
+            toggleButtonRef.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
+        else
+            toggleButtonRef.Text = "🚫 ESP einblenden"
+            toggleButtonRef.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+        end
+    end
+    
+    print("👁️ ESP " .. (espVisible and "eingeblendet" or "ausgeblendet"))
 end
 
 -- ===== KAMERA-FOKUS =====
@@ -247,19 +279,15 @@ local function focusOnPart(index)
     local adornee = getAdornee(part)
     if not adornee then return end
     
-    -- Kamera-Position berechnen: von aktueller Kamera-Position aus in Richtung Part
     local camPos = Camera.CFrame.Position
     local targetPos = adornee.Position
     local direction = (targetPos - camPos).Unit
-    -- Falls Kamera zu nah am Part, nimm Standard-Richtung
     if (targetPos - camPos).Magnitude < 1 then
-        direction = Vector3.new(0, 1, 0)  -- von oben
+        direction = Vector3.new(0, 1, 0)
     end
-    -- Neue Kameraposition: Part-Position - Richtung * Distanz + Höhenoffset
     local newPos = targetPos - direction * CONFIG.FocusDistance
     newPos = newPos + Vector3.new(0, CONFIG.FocusHeightOffset, 0)
     
-    -- Kamera setzen
     Camera.CFrame = CFrame.new(newPos, targetPos)
     
     print("📷 Fokussiert auf: " .. part.Name .. " (" .. index .. "/" .. #espPartsList .. ")")
@@ -282,6 +310,7 @@ end
 
 local focusStatusLabel = nil
 local focusIndicatorLabel = nil
+local toggleButtonRef = nil
 
 local function updateFocusStatus()
     if focusStatusLabel then
@@ -300,13 +329,25 @@ local function updateFocusStatus()
             focusIndicatorLabel.Text = "▶ Fokussiert: " .. espPartsList[currentFocusIndex].Name
             focusIndicatorLabel.TextColor3 = Color3.fromRGB(0, 255, 200)
         else
-            focusIndicatorLabel.Text = "Kein Part fokussiert (drücke F)"
+            focusIndicatorLabel.Text = "Kein Part fokussiert (Pfeile nutzen)"
             focusIndicatorLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
         end
     end
 end
 
 -- ===== SUCHFUNKTIONEN =====
+
+local statusLabelRef = nil
+
+local function updateStatusLabel()
+    if statusLabelRef then
+        if #activeTerms == 0 then
+            statusLabelRef.Text = "Aktiv: Keine"
+        else
+            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
+        end
+    end
+end
 
 local function searchAndAdd(term)
     if not term or string.len(term) == 0 then return end
@@ -332,7 +373,7 @@ local function searchAndAdd(term)
     updateStatusLabel()
     print("✅ " .. count .. " neue Objekte wurden zu ESP hinzugefügt.")
     if count > 0 and currentFocusIndex == 0 then
-        focusOnPart(1)  -- Automatisch erstes Part fokussieren
+        focusOnPart(1)
     end
 end
 
@@ -345,20 +386,6 @@ local function clearAllESP()
     updateStatusLabel()
     updateFocusStatus()
     print("🧹 Alle ESPs wurden entfernt.")
-end
-
--- ===== UI-STATUS UPDATE (für Suchbegriffe) =====
-
-local statusLabelRef = nil
-
-local function updateStatusLabel()
-    if statusLabelRef then
-        if #activeTerms == 0 then
-            statusLabelRef.Text = "Aktiv: Keine"
-        else
-            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
-        end
-    end
 end
 
 -- ===== UI ERSTELLEN =====
@@ -374,10 +401,10 @@ local function createUI()
     screenGui.Parent = playerGui
     screenGui.Enabled = true
 
-    -- Haupt-Frame (etwas größer für mehr Infos)
+    -- Haupt-Frame (etwas höher für neue Buttons)
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 360, 0, 250)
+    mainFrame.Size = UDim2.new(0, 380, 0, 290)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
     mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
     mainFrame.BackgroundTransparency = 0.1
@@ -397,7 +424,7 @@ local function createUI()
     title.Size = UDim2.new(1, 0, 0, 35)
     title.Position = UDim2.new(0, 0, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "🔍 Part-ESP + Tracer + Kamera"
+    title.Text = "🔍 Part-ESP + Navigation"
     title.TextColor3 = Color3.fromRGB(220, 220, 255)
     title.TextSize = 18
     title.Font = Enum.Font.GothamBold
@@ -423,13 +450,13 @@ local function createUI()
     boxCorner.CornerRadius = UDim.new(0, 5)
     boxCorner.Parent = textBox
 
-    -- Button-Container
-    local buttonContainer = Instance.new("Frame")
-    buttonContainer.Name = "ButtonContainer"
-    buttonContainer.Size = UDim2.new(1, 0, 0, 42)
-    buttonContainer.Position = UDim2.new(0, 0, 0, 83)
-    buttonContainer.BackgroundTransparency = 1
-    buttonContainer.Parent = mainFrame
+    -- Erste Button-Zeile (Suchen + Löschen)
+    local buttonContainer1 = Instance.new("Frame")
+    buttonContainer1.Name = "ButtonContainer1"
+    buttonContainer1.Size = UDim2.new(1, 0, 0, 42)
+    buttonContainer1.Position = UDim2.new(0, 0, 0, 83)
+    buttonContainer1.BackgroundTransparency = 1
+    buttonContainer1.Parent = mainFrame
 
     -- Suchen-Button
     local searchBtn = Instance.new("TextButton")
@@ -442,7 +469,7 @@ local function createUI()
     searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     searchBtn.TextSize = 16
     searchBtn.Font = Enum.Font.GothamBold
-    searchBtn.Parent = buttonContainer
+    searchBtn.Parent = buttonContainer1
 
     local searchCorner = Instance.new("UICorner")
     searchCorner.CornerRadius = UDim.new(0, 5)
@@ -451,25 +478,98 @@ local function createUI()
     -- Clear-Button
     local clearBtn = Instance.new("TextButton")
     clearBtn.Name = "ClearBtn"
-    clearBtn.Size = UDim.new(0.45, -5, 1, 0)
-    clearBtn.Position = UDim.new(0.55, 0, 0, 0)
+    clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
+    clearBtn.Position = UDim2.new(0.55, 0, 0, 0)
     clearBtn.BackgroundColor3 = Color3.fromRGB(210, 60, 60)
     clearBtn.BorderSizePixel = 0
     clearBtn.Text = "🗑️ Alles entfernen"
     clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     clearBtn.TextSize = 16
     clearBtn.Font = Enum.Font.GothamBold
-    clearBtn.Parent = buttonContainer
+    clearBtn.Parent = buttonContainer1
 
     local clearCorner = Instance.new("UICorner")
     clearCorner.CornerRadius = UDim.new(0, 5)
     clearCorner.Parent = clearBtn
 
+    -- Zweite Button-Zeile (Navigation + Toggle)
+    local buttonContainer2 = Instance.new("Frame")
+    buttonContainer2.Name = "ButtonContainer2"
+    buttonContainer2.Size = UDim2.new(1, 0, 0, 42)
+    buttonContainer2.Position = UDim2.new(0, 0, 0, 130)
+    buttonContainer2.BackgroundTransparency = 1
+    buttonContainer2.Parent = mainFrame
+
+    -- Pfeil links (vorheriges Part)
+    local prevBtn = Instance.new("TextButton")
+    prevBtn.Name = "PrevBtn"
+    prevBtn.Size = UDim2.new(0.15, 0, 1, 0)
+    prevBtn.Position = UDim2.new(0, 0, 0, 0)
+    prevBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+    prevBtn.BorderSizePixel = 0
+    prevBtn.Text = "◀"
+    prevBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    prevBtn.TextSize = 22
+    prevBtn.Font = Enum.Font.GothamBold
+    prevBtn.Parent = buttonContainer2
+
+    local prevCorner = Instance.new("UICorner")
+    prevCorner.CornerRadius = UDim.new(0, 5)
+    prevCorner.Parent = prevBtn
+
+    -- Fokus-Status (zentriert zwischen den Pfeilen)
+    local focusNavLabel = Instance.new("TextLabel")
+    focusNavLabel.Name = "FocusNavLabel"
+    focusNavLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    focusNavLabel.Position = UDim2.new(0.2, 0, 0, 0)
+    focusNavLabel.BackgroundTransparency = 1
+    focusNavLabel.Text = "Part 1/5"
+    focusNavLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
+    focusNavLabel.TextSize = 16
+    focusNavLabel.Font = Enum.Font.GothamBold
+    focusNavLabel.TextXAlignment = Enum.TextXAlignment.Center
+    focusNavLabel.Parent = buttonContainer2
+
+    -- Pfeil rechts (nächstes Part)
+    local nextBtn = Instance.new("TextButton")
+    nextBtn.Name = "NextBtn"
+    nextBtn.Size = UDim2.new(0.15, 0, 1, 0)
+    nextBtn.Position = UDim2.new(0.85, 0, 0, 0)
+    nextBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+    nextBtn.BorderSizePixel = 0
+    nextBtn.Text = "▶"
+    nextBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nextBtn.TextSize = 22
+    nextBtn.Font = Enum.Font.GothamBold
+    nextBtn.Parent = buttonContainer2
+
+    local nextCorner = Instance.new("UICorner")
+    nextCorner.CornerRadius = UDim.new(0, 5)
+    nextCorner.Parent = nextBtn
+
+    -- Dritte Zeile: Toggle-Button (zentriert)
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "ToggleBtn"
+    toggleBtn.Size = UDim2.new(0.6, 0, 0, 38)
+    toggleBtn.Position = UDim2.new(0.2, 0, 0, 177)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
+    toggleBtn.BorderSizePixel = 0
+    toggleBtn.Text = "👁️ ESP ausblenden"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.TextSize = 16
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.Parent = mainFrame
+    toggleButtonRef = toggleBtn
+
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 5)
+    toggleCorner.Parent = toggleBtn
+
     -- Status (aktive Begriffe)
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
-    statusLabel.Size = UDim2.new(1, -20, 0, 30)
-    statusLabel.Position = UDim2.new(0, 10, 0, 130)
+    statusLabel.Size = UDim2.new(1, -20, 0, 28)
+    statusLabel.Position = UDim2.new(0, 10, 0, 220)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Aktiv: Keine"
     statusLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
@@ -480,42 +580,19 @@ local function createUI()
     statusLabel.Parent = mainFrame
     statusLabelRef = statusLabel
 
-    -- Trennlinie
-    local line = Instance.new("Frame")
-    line.Size = UDim2.new(1, -20, 0, 1)
-    line.Position = UDim2.new(0, 10, 0, 165)
-    line.BackgroundColor3 = Color3.fromRGB(80, 80, 130)
-    line.BackgroundTransparency = 0.5
-    line.Parent = mainFrame
-
     -- Fokus-Status (Parts-Anzahl + aktueller Fokus)
     local focusLabel = Instance.new("TextLabel")
     focusLabel.Name = "FocusLabel"
-    focusLabel.Size = UDim2.new(1, -20, 0, 25)
-    focusLabel.Position = UDim2.new(0, 10, 0, 175)
+    focusLabel.Size = UDim2.new(1, -20, 0, 22)
+    focusLabel.Position = UDim2.new(0, 10, 0, 250)
     focusLabel.BackgroundTransparency = 1
     focusLabel.Text = "Parts: 0 | Fokus: -"
     focusLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
-    focusLabel.TextSize = 14
+    focusLabel.TextSize = 13
     focusLabel.Font = Enum.Font.GothamMedium
     focusLabel.TextXAlignment = Enum.TextXAlignment.Left
     focusLabel.Parent = mainFrame
     focusStatusLabel = focusLabel
-
-    -- Fokus-Indikator (welches Part)
-    local indicator = Instance.new("TextLabel")
-    indicator.Name = "Indicator"
-    indicator.Size = UDim2.new(1, -20, 0, 30)
-    indicator.Position = UDim2.new(0, 10, 0, 205)
-    indicator.BackgroundTransparency = 1
-    indicator.Text = "Kein Part fokussiert (drücke F)"
-    indicator.TextColor3 = Color3.fromRGB(200, 200, 200)
-    indicator.TextSize = 14
-    indicator.Font = Enum.Font.GothamMedium
-    indicator.TextXAlignment = Enum.TextXAlignment.Left
-    indicator.TextWrapped = true
-    indicator.Parent = mainFrame
-    focusIndicatorLabel = indicator
 
     -- ===== EVENTS =====
 
@@ -541,29 +618,41 @@ local function createUI()
         clearAllESP()
     end)
 
+    -- Navigation: Vorheriges Part
+    prevBtn.MouseButton1Click:Connect(function()
+        focusPrevious()
+        updateNavLabel(focusNavLabel)
+    end)
+
+    -- Navigation: Nächstes Part
+    nextBtn.MouseButton1Click:Connect(function()
+        focusNext()
+        updateNavLabel(focusNavLabel)
+    end)
+
+    -- Toggle-Button
+    toggleBtn.MouseButton1Click:Connect(function()
+        toggleESP()
+    end)
+
+    -- Nav-Label initial aktualisieren
+    updateNavLabel(focusNavLabel)
     updateFocusStatus()
-    print("✅ UI erstellt. Steuerung: F = Fokus, Q/E = Part wechseln")
+    print("✅ UI erstellt. Nutze die Pfeile zum Navigieren, Toggle zum Ein-/Ausblenden.")
 end
 
--- ===== TASTATUR-STEUERUNG =====
+-- ===== NAV-LABEL UPDATE =====
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.F then
-        if #espPartsList > 0 then
-            if currentFocusIndex == 0 then
-                focusOnPart(1)
-            else
-                focusOnPart(currentFocusIndex)
-            end
+local function updateNavLabel(label)
+    if label then
+        if #espPartsList == 0 then
+            label.Text = "Keine Parts"
+        else
+            local current = (currentFocusIndex > 0 and currentFocusIndex) or 1
+            label.Text = "Part " .. current .. "/" .. #espPartsList
         end
-    elseif input.KeyCode == Enum.KeyCode.E then
-        focusNext()
-    elseif input.KeyCode == Enum.KeyCode.Q then
-        focusPrevious()
     end
-end)
+end
 
 -- ===== NEUE OBJEKTE ÜBERWACHEN =====
 
@@ -578,6 +667,6 @@ end)
 
 -- ===== START =====
 
-print("🚀 Starte Part-ESP mit Tracern, Kamera & Wechselfunktion...")
+print("🚀 Starte Part-ESP mit UI-Navigation & Toggle...")
 createUI()
-print("✅ Fertig. Steuerung: F = Fokussieren, Q/E = Wechseln")
+print("✅ Fertig. Nutze die Pfeile (◀/▶) zum Wechseln, Toggle zum Ein-/Ausblenden.")
