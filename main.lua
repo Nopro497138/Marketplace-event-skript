@@ -1,684 +1,278 @@
---[[
-    🔍 PART-ESP MIT UI (VOLLSTÄNDIG REPARIERT)
-    - Korrekte Funktionsreihenfolge
-    - Highlight.Enabled statt Visible
-    - Keine nil-Aufrufe mehr
-]]
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Services
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Window = Rayfield:CreateWindow({
+    Name = "Killer Mixa - Sky Changer",
+    LoadingTitle = "Killer Mixa",
+    LoadingSubtitle = "by Grok 🇷🇸",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "KillerMixa",
+        FileName = "SkyConfig"
+    },
+    Discord = { Enabled = false },
+    KeySystem = false,
+})
 
--- ===== KONFIGURATION =====
-local CONFIG = {
-    HighlightColor = Color3.fromRGB(0, 255, 200),
-    OutlineColor = Color3.fromRGB(255, 255, 255),
-    TextColor = Color3.fromRGB(255, 255, 255),
-    TracerColor = Color3.fromRGB(0, 200, 255),
-    TracerThickness = 1.5,
-    TextSize = 18,
-    UpdateInterval = 0.1,
-    ShowDistance = true,
-    OffsetHeight = 2.5,
-    FocusDistance = 8,
-    FocusHeightOffset = 2,
-}
+local Tab = Window:CreateTab("Skies", 4483362458)
 
--- Prüfen ob Drawing-API verfügbar
-local hasDrawing = pcall(function() return Drawing.new("Line") end)
-
--- ===== INTERNER SPEICHER =====
-local activeTerms = {}
-local espMap = {}
-local tracerObjects = {}
-local espPartsList = {}
-local currentFocusIndex = 0
-local espVisible = true
-
--- Referenzen für UI-Elemente (werden später gesetzt)
-local statusLabelRef = nil
-local focusStatusLabel = nil
-local navLabelRef = nil
-local toggleButtonRef = nil
-
--- ===== UI-UPDATE-FUNKTIONEN (werden VOR dem ESP-Kern definiert) =====
-
-local function updateStatusLabel()
-    if statusLabelRef then
-        if #activeTerms == 0 then
-            statusLabelRef.Text = "Aktiv: Keine"
-        else
-            statusLabelRef.Text = "Aktiv: " .. table.concat(activeTerms, ", ")
-        end
+-- === DOBRODOŠLICA ===
+local function ShowWelcomeScreen()
+    local player = game.Players.LocalPlayer
+    local playerGui = player:WaitForChild("PlayerGui")
+    
+    local welcomeGui = Instance.new("ScreenGui")
+    welcomeGui.Name = "KillerWelcome"
+    welcomeGui.ResetOnSpawn = false
+    welcomeGui.Parent = playerGui
+    
+    local blackFrame = Instance.new("Frame")
+    blackFrame.Size = UDim2.new(1, 0, 1, 0)
+    blackFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    blackFrame.BorderSizePixel = 0
+    blackFrame.Parent = welcomeGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(0.8, 0, 0.3, 0)
+    title.Position = UDim2.new(0.1, 0, 0.35, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "DOBRO DOŠAO NA\nKILLER MIXA SCRIPT"
+    title.TextColor3 = Color3.fromRGB(255, 255, 100)
+    title.TextScaled = true
+    title.Font = Enum.Font.Arcade
+    title.TextStrokeTransparency = 0
+    title.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    title.TextWrapped = true
+    title.Parent = blackFrame
+    
+    local flag = Instance.new("TextLabel")
+    flag.Size = UDim2.new(0.8, 0, 0.1, 0)
+    flag.Position = UDim2.new(0.1, 0, 0.55, 0)
+    flag.BackgroundTransparency = 1
+    flag.Text = "🇷🇸"
+    flag.TextColor3 = Color3.fromRGB(255, 255, 255)
+    flag.TextScaled = true
+    flag.Font = Enum.Font.Arcade
+    flag.TextStrokeTransparency = 0
+    flag.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    flag.Parent = blackFrame
+    
+    wait(3)
+    for i = 1, 30 do
+        blackFrame.BackgroundTransparency = i/30
+        title.TextTransparency = i/30
+        flag.TextTransparency = i/30
+        wait(0.03)
     end
+    welcomeGui:Destroy()
 end
 
-local function updateFocusStatus()
-    if focusStatusLabel then
-        if #espPartsList == 0 then
-            focusStatusLabel.Text = "Parts: 0 | Fokus: -"
-        else
-            local focusName = "Kein"
-            if currentFocusIndex > 0 and espPartsList[currentFocusIndex] then
-                focusName = espPartsList[currentFocusIndex].Name
-            end
-            focusStatusLabel.Text = "Parts: " .. #espPartsList .. " | Fokus: " .. focusName
-        end
-    end
-end
-
-local function updateNavLabel()
-    if navLabelRef then
-        if #espPartsList == 0 then
-            navLabelRef.Text = "Keine Parts"
-        else
-            local current = (currentFocusIndex > 0 and currentFocusIndex) or 1
-            navLabelRef.Text = "Part " .. current .. "/" .. #espPartsList
-        end
-    end
-end
-
--- ===== HILFSFUNKTIONEN =====
-
-local function matchesActiveTerms(instance)
-    local lowerName = string.lower(instance.Name)
-    for _, term in ipairs(activeTerms) do
-        if string.find(lowerName, string.lower(term), 1, true) then
-            return true
-        end
-    end
-    return false
-end
-
-local function getAdornee(instance)
-    if instance:IsA("BasePart") then
-        return instance
-    elseif instance:IsA("Model") then
-        local primary = instance.PrimaryPart
-        if primary then return primary end
-        for _, child in ipairs(instance:GetChildren()) do
-            if child:IsA("BasePart") then
-                return child
-            end
-        end
-    end
-    return nil
-end
-
--- ===== TRACER =====
-
-local function createTracer(part)
-    if not hasDrawing then return nil end
-    if tracerObjects[part] then return end
-    local tracer = Drawing.new("Line")
-    tracer.Visible = false
-    tracer.Color = CONFIG.TracerColor
-    tracer.Thickness = CONFIG.TracerThickness
-    tracer.Transparency = 1
-    tracerObjects[part] = tracer
-    return tracer
-end
-
-local function removeTracer(part)
-    if not hasDrawing then return end
-    local tracer = tracerObjects[part]
-    if tracer then
-        tracer:Remove()
-        tracerObjects[part] = nil
-    end
-end
-
--- ===== LISTEN-VERWALTUNG =====
-
-local function addPartToList(part)
-    for i, p in ipairs(espPartsList) do
-        if p == part then return end
-    end
-    table.insert(espPartsList, part)
-    updateFocusStatus()
-    updateNavLabel()
-end
-
-local function removePartFromList(part)
-    for i, p in ipairs(espPartsList) do
-        if p == part then
-            table.remove(espPartsList, i)
-            if currentFocusIndex == i then
-                currentFocusIndex = 0
-            elseif currentFocusIndex > i then
-                currentFocusIndex = currentFocusIndex - 1
-            end
-            break
-        end
-    end
-    updateFocusStatus()
-    updateNavLabel()
-end
-
--- ===== ESP KERN =====
-
-local function createESP(instance)
-    if espMap[instance] then return end
-    local adornee = getAdornee(instance)
-    if not adornee then return end
-
-    -- Highlight (Enabled, nicht Visible)
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ESP_Search_Highlight"
-    highlight.Adornee = instance
-    highlight.FillColor = CONFIG.HighlightColor
-    highlight.OutlineColor = CONFIG.OutlineColor
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Enabled = espVisible
-    highlight.Parent = instance
-
-    -- Billboard
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_Search_Billboard"
-    billboard.Adornee = adornee
-    billboard.Size = UDim2.new(0, 250, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, CONFIG.OffsetHeight, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Enabled = espVisible
-    billboard.Parent = instance
-
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "ESP_Search_Text"
-    textLabel.Size = UDim2.new(1, 0, 1, 0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.TextColor3 = CONFIG.TextColor
-    textLabel.TextStrokeTransparency = 0
-    textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    textLabel.Font = Enum.Font.GothamBold
-    textLabel.TextScaled = false
-    textLabel.TextSize = CONFIG.TextSize
-    textLabel.Text = "Lade..."
-    textLabel.Parent = billboard
-
-    -- Tracer
-    local tracer = nil
-    if hasDrawing then
-        tracer = createTracer(instance)
-    end
-
-    -- In Liste aufnehmen
-    addPartToList(instance)
-
-    -- Daten speichern
-    espMap[instance] = {
-        Highlight = highlight,
-        Billboard = billboard,
-        TextLabel = textLabel,
-        Adornee = adornee,
-        DisplayName = instance.Name,
-        Tracer = tracer,
-    }
-
-    -- Update-Schleife (Distanz + Tracer)
-    task.spawn(function()
-        local data = espMap[instance]
-        if not data then return end
-        
-        while instance and instance.Parent and data.TextLabel do
-            -- Distanz
-            local distance = "?"
-            if CONFIG.ShowDistance then
-                local localChar = LocalPlayer.Character
-                if localChar then
-                    local head = localChar:FindFirstChild("Head")
-                    if head and data.Adornee then
-                        local dist = (data.Adornee.Position - head.Position).Magnitude
-                        distance = string.format("%.1f", dist) .. "m"
-                    end
-                end
-            end
-            
-            -- Text
-            if CONFIG.ShowDistance then
-                data.TextLabel.Text = data.DisplayName .. "  |  " .. distance
-            else
-                data.TextLabel.Text = data.DisplayName
-            end
-            
-            -- Tracer
-            if data.Tracer and espVisible and hasDrawing then
-                local localChar = LocalPlayer.Character
-                if localChar and data.Adornee then
-                    local head = localChar:FindFirstChild("Head")
-                    if head then
-                        local screenPos, onScreen = Camera:WorldToViewportPoint(data.Adornee.Position)
-                        if onScreen then
-                            data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                            data.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                            data.Tracer.Visible = true
-                        else
-                            data.Tracer.Visible = false
+-- === GLOBAL MINECRAFT FONT ===
+local function ApplyMinecraftFontToAll()
+    spawn(function()
+        while wait(1) do
+            pcall(function()
+                for _, gui in pairs(game:GetDescendants()) do
+                    if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
+                        gui.Font = Enum.Font.Arcade
+                        gui.TextStrokeTransparency = 0
+                        gui.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                        if gui.TextColor3 == Color3.fromRGB(255,255,255) then
+                            gui.TextColor3 = Color3.fromRGB(255, 255, 100)
                         end
                     end
                 end
-            elseif data.Tracer then
-                data.Tracer.Visible = false
+            end)
+        end
+    end)
+end
+
+-- === GALAXY SKY ===
+local function SetGalaxySky()
+    local lighting = game:GetService("Lighting")
+    
+    for _, v in pairs(lighting:GetChildren()) do
+        if v:IsA("Sky") then
+            v:Destroy()
+        end
+    end
+    
+    local sky = Instance.new("Sky")
+    sky.SkyboxBk = "http://www.roblox.com/asset/?id=159454299"
+    sky.SkyboxDn = "http://www.roblox.com/asset/?id=159454296"
+    sky.SkyboxFt = "http://www.roblox.com/asset/?id=159454293"
+    sky.SkyboxLf = "http://www.roblox.com/asset/?id=159454286"
+    sky.SkyboxRt = "http://www.roblox.com/asset/?id=159454300"
+    sky.SkyboxUp = "http://www.roblox.com/asset/?id=159454288"
+    sky.StarCount = 5000
+    sky.SunAngularSize = 0
+    sky.MoonAngularSize = 0
+    sky.Parent = lighting
+    
+    Rayfield:Notify({
+        Title = "Killer Mixa",
+        Content = "🌌 GALAXY SKY AKTIVIRAN!",
+        Duration = 5
+    })
+end
+
+-- === MINECRAFT SKY ===
+local function SetMinecraftSky()
+    local lighting = game:GetService("Lighting")
+    
+    -- Brišemo stari Sky
+    for _, v in pairs(lighting:GetChildren()) do
+        if v:IsA("Sky") then
+            v:Destroy()
+        end
+    end
+    
+    local sky = Instance.new("Sky")
+    sky.SkyboxBk = "rbxassetid://271042596"   -- popularan Minecraft-style
+    sky.SkyboxDn = "rbxassetid://271042597"
+    sky.SkyboxFt = "rbxassetid://271042598"
+    sky.SkyboxLf = "rbxassetid://271042599"
+    sky.SkyboxRt = "rbxassetid://271042600"
+    sky.SkyboxUp = "rbxassetid://271042601"
+    
+    sky.StarCount = 3000
+    sky.SunAngularSize = 15
+    sky.MoonAngularSize = 11
+    sky.Parent = lighting
+    
+    Rayfield:Notify({
+        Title = "Killer Mixa",
+        Content = "⛏️ MINECRAFT SKY AKTIVIRAN!",
+        Duration = 5
+    })
+end
+
+-- === ULTRA CRNE LINIJE ===
+local function ChangeToUltraBlackLines()
+    local count = 0
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("MeshPart") or obj:IsA("Part") then
+            local color = obj.Color
+            if color.R >= 0.65 and color.G >= 0.65 and color.B >= 0.65 then
+                local size = obj.Size
+                if (size.Y < 2.5 and (size.X > 5 or size.Z > 5)) or math.min(size.X, size.Z) < 3 then
+                    obj.Color = Color3.fromRGB(0, 0, 0)
+                    obj.Material = Enum.Material.Plastic
+                    obj.Reflectance = 0
+                    obj.Transparency = 0
+                    obj.CanCollide = false
+                    count += 1
+                end
             end
-            
-            task.wait(CONFIG.UpdateInterval)
         end
         
-        -- Aufräumen
-        if instance then
-            removeTracer(instance)
-            removePartFromList(instance)
-        end
-    end)
-end
-
-local function removeESP(instance)
-    local data = espMap[instance]
-    if data then
-        if data.Highlight then data.Highlight:Destroy() end
-        if data.Billboard then data.Billboard:Destroy() end
-        removeTracer(instance)
-        espMap[instance] = nil
-        removePartFromList(instance)
-    end
-end
-
--- ===== TOGGLE =====
-
-local function toggleESP()
-    espVisible = not espVisible
-    
-    for instance, data in pairs(espMap) do
-        if data.Highlight then
-            data.Highlight.Enabled = espVisible
-        end
-        if data.Billboard then
-            data.Billboard.Enabled = espVisible
-        end
-        if data.Tracer and hasDrawing then
-            if not espVisible then
-                data.Tracer.Visible = false
+        if obj:IsA("Decal") or obj:IsA("Texture") then
+            if obj.Color3 and obj.Color3.R >= 0.7 then
+                obj.Color3 = Color3.fromRGB(0, 0, 0)
+                count += 1
             end
         end
     end
-    
-    if toggleButtonRef then
-        if espVisible then
-            toggleButtonRef.Text = "👁️ ESP ausblenden"
-            toggleButtonRef.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
-        else
-            toggleButtonRef.Text = "🚫 ESP einblenden"
-            toggleButtonRef.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-        end
-    end
-    print("👁️ ESP " .. (espVisible and "eingeblendet" or "ausgeblendet"))
+    Rayfield:Notify({Title="Killer Mixa", Content="ULTRA CRNE LINIJE AKTIVIRANE! ("..count..")", Duration=5})
 end
 
--- ===== KAMERA-FOKUS =====
-
-local function focusOnPart(index)
-    if #espPartsList == 0 then
-        print("⚠️ Keine Parts zum Fokussieren vorhanden.")
-        return
-    end
-    if index < 1 then index = 1 end
-    if index > #espPartsList then index = #espPartsList end
-    
-    currentFocusIndex = index
-    local part = espPartsList[index]
-    if not part or not part.Parent then
-        print("⚠️ Part existiert nicht mehr.")
-        return
-    end
-    
-    local adornee = getAdornee(part)
-    if not adornee then return end
-    
-    local camPos = Camera.CFrame.Position
-    local targetPos = adornee.Position
-    local direction = (targetPos - camPos).Unit
-    if (targetPos - camPos).Magnitude < 1 then
-        direction = Vector3.new(0, 1, 0)
-    end
-    local newPos = targetPos - direction * CONFIG.FocusDistance
-    newPos = newPos + Vector3.new(0, CONFIG.FocusHeightOffset, 0)
-    
-    Camera.CFrame = CFrame.new(newPos, targetPos)
-    
-    print("📷 Fokussiert auf: " .. part.Name .. " (" .. index .. "/" .. #espPartsList .. ")")
-    updateFocusStatus()
-    updateNavLabel()
-end
-
-local function focusNext()
-    if #espPartsList == 0 then return end
-    local newIndex = (currentFocusIndex % #espPartsList) + 1
-    focusOnPart(newIndex)
-end
-
-local function focusPrevious()
-    if #espPartsList == 0 then return end
-    local newIndex = ((currentFocusIndex - 2) % #espPartsList) + 1
-    focusOnPart(newIndex)
-end
-
--- ===== SUCHFUNKTION =====
-
-local function searchAndAdd(term)
-    if not term or string.len(term) == 0 then return end
-    local cleanTerm = string.lower(term)
-    for _, existing in ipairs(activeTerms) do
-        if existing == cleanTerm then
-            print("⚠️ Begriff '" .. term .. "' ist bereits aktiv.")
-            return
-        end
-    end
-    table.insert(activeTerms, cleanTerm)
-    print("🔍 Suche nach: '" .. term .. "'")
-
-    local allObjects = game:GetDescendants()
+-- === CRNE LINIJE ZA EMERGENCY HAMBURG ===
+local function ChangeToEmergencyHamburgBlackLines()
     local count = 0
-    local totalPartsChecked = 0
-
-    for _, instance in ipairs(allObjects) do
-        if instance:IsA("BasePart") or instance:IsA("Model") then
-            totalPartsChecked = totalPartsChecked + 1
-            if not espMap[instance] and matchesActiveTerms(instance) then
-                createESP(instance)
-                count = count + 1
-                print("✅ Gefunden: " .. instance.Name)
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("MeshPart") or obj:IsA("Part") then
+            local color = obj.Color
+            local size = obj.Size
+            
+            if (color.R >= 0.55 and color.G >= 0.55 and color.B >= 0.55) then
+                if size.Y < 4 or math.min(size.X, size.Z) < 4 or (size.Y > 8 and math.min(size.X, size.Z) > 15) then
+                    obj.Color = Color3.fromRGB(0, 0, 0)
+                    obj.Material = Enum.Material.Plastic
+                    obj.Reflectance = 0
+                    obj.Transparency = 0
+                    obj.CanCollide = false
+                    count += 1
+                end
+            end
+        end
+        
+        if obj:IsA("Decal") or obj:IsA("Texture") then
+            if obj.Color3 and obj.Color3.R >= 0.6 then
+                obj.Color3 = Color3.fromRGB(0, 0, 0)
+                count += 1
             end
         end
     end
-
-    print("🔎 Durchsuchte " .. totalPartsChecked .. " Teile/Modelle insgesamt.")
-    updateStatusLabel()
-    print("✅ " .. count .. " neue Objekte wurden zu ESP hinzugefügt.")
-    
-    if count > 0 and currentFocusIndex == 0 then
-        focusOnPart(1)
-    elseif count == 0 then
-        print("⚠️ Kein Part enthält das Wort '" .. term .. "'. Versuche es mit einem anderen Begriff.")
-        -- Zeige Beispiele
-        local sample = {}
-        for _, instance in ipairs(allObjects) do
-            if (instance:IsA("BasePart") or instance:IsA("Model")) and #sample < 10 then
-                table.insert(sample, instance.Name)
-            end
-        end
-        if #sample > 0 then
-            print("📋 Beispielhafte Part-Namen: " .. table.concat(sample, ", "))
-        end
-    end
+    Rayfield:Notify({Title="Killer Mixa", Content="EMERGENCY HAMBURG CRNE LINIJE AKTIVIRANE! ("..count..")", Duration=5})
 end
 
-local function clearAllESP()
-    for instance, _ in pairs(espMap) do
-        removeESP(instance)
-    end
-    activeTerms = {}
-    currentFocusIndex = 0
-    updateStatusLabel()
-    updateFocusStatus()
-    updateNavLabel()
-    print("🧹 Alle ESPs wurden entfernt.")
+-- === OSTALE FUNKCIJE ===
+local function ToggleTransparency(enable) 
+    -- tvoj kod...
 end
 
--- ===== UI ERSTELLEN =====
-
-local function createUI()
-    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-    local oldGui = playerGui:FindFirstChild("PartSearchESP_GUI")
-    if oldGui then oldGui:Destroy() end
-
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "PartSearchESP_GUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = playerGui
-    screenGui.Enabled = true
-
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 360, 0, 290)
-    mainFrame.Position = UDim2.new(0, 10, 0, 10)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-    mainFrame.BackgroundTransparency = 0.1
-    mainFrame.BorderSizePixel = 1
-    mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 130)
-    mainFrame.ClipsDescendants = true
-    mainFrame.Draggable = true
-    mainFrame.Active = true
-    mainFrame.Parent = screenGui
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = mainFrame
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 35)
-    title.Position = UDim2.new(0, 0, 0, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "🔍 Part-ESP + Navigation"
-    title.TextColor3 = Color3.fromRGB(220, 220, 255)
-    title.TextSize = 18
-    title.Font = Enum.Font.GothamBold
-    title.TextXAlignment = Enum.TextXAlignment.Center
-    title.Parent = mainFrame
-
-    local textBox = Instance.new("TextBox")
-    textBox.Name = "SearchBox"
-    textBox.Size = UDim2.new(1, -20, 0, 38)
-    textBox.Position = UDim2.new(0, 10, 0, 40)
-    textBox.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
-    textBox.BorderSizePixel = 0
-    textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    textBox.TextSize = 16
-    textBox.Font = Enum.Font.GothamMedium
-    textBox.PlaceholderText = "Wort eingeben (z.B. 'Truhe')"
-    textBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 190)
-    textBox.ClearTextOnFocus = false
-    textBox.Parent = mainFrame
-
-    local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 5)
-    boxCorner.Parent = textBox
-
-    -- Button-Zeile 1
-    local buttonContainer1 = Instance.new("Frame")
-    buttonContainer1.Name = "ButtonContainer1"
-    buttonContainer1.Size = UDim2.new(1, 0, 0, 42)
-    buttonContainer1.Position = UDim2.new(0, 0, 0, 83)
-    buttonContainer1.BackgroundTransparency = 1
-    buttonContainer1.Parent = mainFrame
-
-    local searchBtn = Instance.new("TextButton")
-    searchBtn.Name = "SearchBtn"
-    searchBtn.Size = UDim2.new(0.45, -5, 1, 0)
-    searchBtn.Position = UDim2.new(0, 0, 0, 0)
-    searchBtn.BackgroundColor3 = Color3.fromRGB(0, 190, 150)
-    searchBtn.BorderSizePixel = 0
-    searchBtn.Text = "➕ Hinzufügen"
-    searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    searchBtn.TextSize = 16
-    searchBtn.Font = Enum.Font.GothamBold
-    searchBtn.Parent = buttonContainer1
-
-    local searchCorner = Instance.new("UICorner")
-    searchCorner.CornerRadius = UDim.new(0, 5)
-    searchCorner.Parent = searchBtn
-
-    local clearBtn = Instance.new("TextButton")
-    clearBtn.Name = "ClearBtn"
-    clearBtn.Size = UDim2.new(0.45, -5, 1, 0)
-    clearBtn.Position = UDim2.new(0.55, 0, 0, 0)
-    clearBtn.BackgroundColor3 = Color3.fromRGB(210, 60, 60)
-    clearBtn.BorderSizePixel = 0
-    clearBtn.Text = "🗑️ Alles entfernen"
-    clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    clearBtn.TextSize = 16
-    clearBtn.Font = Enum.Font.GothamBold
-    clearBtn.Parent = buttonContainer1
-
-    local clearCorner = Instance.new("UICorner")
-    clearCorner.CornerRadius = UDim.new(0, 5)
-    clearCorner.Parent = clearBtn
-
-    -- Button-Zeile 2 (Pfeile)
-    local buttonContainer2 = Instance.new("Frame")
-    buttonContainer2.Name = "ButtonContainer2"
-    buttonContainer2.Size = UDim2.new(1, 0, 0, 42)
-    buttonContainer2.Position = UDim2.new(0, 0, 0, 130)
-    buttonContainer2.BackgroundTransparency = 1
-    buttonContainer2.Parent = mainFrame
-
-    local prevBtn = Instance.new("TextButton")
-    prevBtn.Name = "PrevBtn"
-    prevBtn.Size = UDim2.new(0.15, 0, 1, 0)
-    prevBtn.Position = UDim2.new(0, 0, 0, 0)
-    prevBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
-    prevBtn.BorderSizePixel = 0
-    prevBtn.Text = "◀"
-    prevBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    prevBtn.TextSize = 22
-    prevBtn.Font = Enum.Font.GothamBold
-    prevBtn.Parent = buttonContainer2
-
-    local prevCorner = Instance.new("UICorner")
-    prevCorner.CornerRadius = UDim.new(0, 5)
-    prevCorner.Parent = prevBtn
-
-    local navLabel = Instance.new("TextLabel")
-    navLabel.Name = "NavLabel"
-    navLabel.Size = UDim2.new(0.5, 0, 1, 0)
-    navLabel.Position = UDim2.new(0.2, 0, 0, 0)
-    navLabel.BackgroundTransparency = 1
-    navLabel.Text = "Keine Parts"
-    navLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
-    navLabel.TextSize = 16
-    navLabel.Font = Enum.Font.GothamBold
-    navLabel.TextXAlignment = Enum.TextXAlignment.Center
-    navLabel.Parent = buttonContainer2
-    navLabelRef = navLabel
-
-    local nextBtn = Instance.new("TextButton")
-    nextBtn.Name = "NextBtn"
-    nextBtn.Size = UDim2.new(0.15, 0, 1, 0)
-    nextBtn.Position = UDim2.new(0.85, 0, 0, 0)
-    nextBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
-    nextBtn.BorderSizePixel = 0
-    nextBtn.Text = "▶"
-    nextBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    nextBtn.TextSize = 22
-    nextBtn.Font = Enum.Font.GothamBold
-    nextBtn.Parent = buttonContainer2
-
-    local nextCorner = Instance.new("UICorner")
-    nextCorner.CornerRadius = UDim.new(0, 5)
-    nextCorner.Parent = nextBtn
-
-    -- Toggle-Button
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Name = "ToggleBtn"
-    toggleBtn.Size = UDim2.new(0.6, 0, 0, 38)
-    toggleBtn.Position = UDim2.new(0.2, 0, 0, 177)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.Text = "👁️ ESP ausblenden"
-    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleBtn.TextSize = 16
-    toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.Parent = mainFrame
-    toggleButtonRef = toggleBtn
-
-    local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(0, 5)
-    toggleCorner.Parent = toggleBtn
-
-    -- Status
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Name = "StatusLabel"
-    statusLabel.Size = UDim2.new(1, -20, 0, 28)
-    statusLabel.Position = UDim2.new(0, 10, 0, 220)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "Aktiv: Keine"
-    statusLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
-    statusLabel.TextSize = 14
-    statusLabel.Font = Enum.Font.GothamMedium
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-    statusLabel.TextWrapped = true
-    statusLabel.Parent = mainFrame
-    statusLabelRef = statusLabel
-
-    -- Fokus-Status
-    local focusLabel = Instance.new("TextLabel")
-    focusLabel.Name = "FocusLabel"
-    focusLabel.Size = UDim2.new(1, -20, 0, 22)
-    focusLabel.Position = UDim2.new(0, 10, 0, 250)
-    focusLabel.BackgroundTransparency = 1
-    focusLabel.Text = "Parts: 0 | Fokus: -"
-    focusLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
-    focusLabel.TextSize = 13
-    focusLabel.Font = Enum.Font.GothamMedium
-    focusLabel.TextXAlignment = Enum.TextXAlignment.Left
-    focusLabel.Parent = mainFrame
-    focusStatusLabel = focusLabel
-
-    -- ===== EVENTS =====
-
-    searchBtn.MouseButton1Click:Connect(function()
-        local term = textBox.Text
-        if string.len(term) > 0 then
-            searchAndAdd(term)
-            textBox.Text = ""
-        end
-    end)
-
-    textBox.FocusLost:Connect(function(enterPressed)
-        if enterPressed then
-            local term = textBox.Text
-            if string.len(term) > 0 then
-                searchAndAdd(term)
-                textBox.Text = ""
-            end
-        end
-    end)
-
-    clearBtn.MouseButton1Click:Connect(function()
-        clearAllESP()
-    end)
-
-    prevBtn.MouseButton1Click:Connect(function()
-        focusPrevious()
-    end)
-
-    nextBtn.MouseButton1Click:Connect(function()
-        focusNext()
-    end)
-
-    toggleBtn.MouseButton1Click:Connect(function()
-        toggleESP()
-    end)
-
-    -- Initiale Aktualisierung
-    updateStatusLabel()
-    updateFocusStatus()
-    updateNavLabel()
-    print("✅ UI geladen. Gib einen Begriff ein, um Parts zu finden.")
+local function ToggleJumpShoot(enable)
+    -- tvoj kod...
 end
 
--- ===== NEUE OBJEKTE ÜBERWACHEN =====
+-- === POČETAK SKRIPTE ===
+ShowWelcomeScreen()
+ApplyMinecraftFontToAll()
 
-game.DescendantAdded:Connect(function(instance)
-    task.wait(0.05)
-    if (instance:IsA("BasePart") or instance:IsA("Model")) then
-        if not espMap[instance] and matchesActiveTerms(instance) then
-            createESP(instance)
-        end
+Tab:CreateSection("Killer Mixa Skies")
+
+Tab:CreateButton({
+    Name = "🌌 Galaxy Sky",
+    Callback = function()
+        SetGalaxySky()
     end
-end)
+})
 
--- ===== START =====
+Tab:CreateButton({
+    Name = "⛏️ Minecraft Sky",
+    Callback = function()
+        SetMinecraftSky()
+    end
+})
 
-print("🚀 Starte Part-ESP (finale Version)...")
-createUI()
-print("✅ Bereit – jetzt sollte alles laufen. Gib ein Wort ein.")
+Tab:CreateSection("Ostalo")
+
+Tab:CreateButton({
+    Name = "⚫ Ultra Crne Linije",
+    Callback = function()
+        ChangeToUltraBlackLines()
+    end
+})
+
+Tab:CreateButton({
+    Name = "🚨 Crne Linije - Emergency Hamburg",
+    Callback = function()
+        ChangeToEmergencyHamburgBlackLines()
+    end
+})
+
+Tab:CreateToggle({
+    Name = "👁️ Auto Prozirljivost",
+    CurrentValue = false,
+    Callback = ToggleTransparency
+})
+
+Tab:CreateToggle({
+    Name = "🔫 Jump + Shoot",
+    CurrentValue = false,
+    Callback = ToggleJumpShoot
+})
+
+Tab:CreateButton({
+    Name = "🌤️ Reset to Default",
+    Callback = function()
+        local lighting = game:GetService("Lighting")
+        for _, v in pairs(lighting:GetChildren()) do
+            if v:IsA("Sky") then v:Destroy() end
+        end
+        Rayfield:Notify({Title="Killer Mixa", Content="Sky resetovan na default!", Duration=5})
+    end
+})
+
+Rayfield:LoadConfiguration()
+
+print("Killer Mixa Script učitan - Dobro došao brate! 🇷🇸")
