@@ -1,4 +1,3 @@
--- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-150, 6, -597)
 local LOOP_WAIT = 0.05
 local HOLD_TIME = 0.8
