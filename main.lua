@@ -1,5 +1,12 @@
--- Rayfield UI Library laden
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Rayfield sicher laden mit Fehlerbehandlung
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not success or not Rayfield then
+    warn("Rayfield konnte nicht geladen werden! Überprüfe deine Internetverbindung oder den Executor.")
+    return
+end
 
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -20,7 +27,7 @@ local Window = Rayfield:CreateWindow({
 local LogTab = Window:CreateTab("Logs", 4483362458)
 local LogSection = LogTab:CreateSection("Kauf-Historie")
 
--- Ein großes Label oder eine strukturierte Liste für die Logs
+-- Paragraph für die Logs
 local LogDisplay = LogTab:CreateParagraph({
    Title = "Bisherige Prompts & Käufe",
    Content = "Noch keine Käufe oder Prompts erkannt."
@@ -52,12 +59,11 @@ local function addLog(pType, pId, status)
    updateLogDisplay()
 end
 
--- Überwachung für Produkt-Käufe (PromptProductPurchaseFinished)
+-- Überwachung für Produkt-Käufe
 if MarketplaceService.PromptProductPurchaseFinished then
    MarketplaceService.PromptProductPurchaseFinished:Connect(function(player, productId, wasPurchased)
       if player == LocalPlayer then
-         local statusText = wasPurchased and "Erfolgreich (Gekauft)" abgebrochen
-         addLog("Developer Product", productId, wasPurchased and "Gekauft" abgebrochen)
+         addLog("Developer Product", productId, wasPurchased and "Gekauft" or "Abgebrochen")
       end
    end)
 end
