@@ -5,14 +5,13 @@ local LOOP_WAIT = 2.0 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 
 -- // ---- STATUS ----
-local running = false      -- Toggle-Status
-local shutdown = false     -- Hard-Shutdown durch X-Knopf
+local running = false
+local shutdown = false
 local loopCoroutine = nil
 
 -- // ---- HILFSFUNKTION: Prüft, ob ein Text eines der Keywords enthält ----
@@ -21,7 +20,7 @@ local function containsKeyword(text)
     return string.find(lower, "og") or string.find(lower, "secret") or string.find(lower, "god")
 end
 
--- // ---- GUI ERSTELLEN ----
+-- // ---- GUI ERSTELLEN (unverändert) ----
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoFarmGUI"
 screenGui.ResetOnSpawn = false
@@ -37,7 +36,6 @@ mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 120)
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
 
--- // Titelbalken (Drag-Bereich)
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 30)
 titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
@@ -56,7 +54,6 @@ titleText.TextXAlignment = Enum.TextXAlignment.Left
 titleText.Font = Enum.Font.GothamBold
 titleText.Parent = titleBar
 
--- // Minimieren-Knopf (_)
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.new(0, 30, 1, -4)
 minBtn.Position = UDim2.new(1, -65, 0, 2)
@@ -68,7 +65,6 @@ minBtn.Font = Enum.Font.GothamBold
 minBtn.BorderSizePixel = 0
 minBtn.Parent = titleBar
 
--- // Schließen-Knopf (X)
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 1, -4)
 closeBtn.Position = UDim2.new(1, -32, 0, 2)
@@ -80,14 +76,12 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.BorderSizePixel = 0
 closeBtn.Parent = titleBar
 
--- // Content-Bereich (wird beim Minimieren ausgeblendet)
 local contentFrame = Instance.new("Frame")
 contentFrame.Size = UDim2.new(1, 0, 1, -30)
 contentFrame.Position = UDim2.new(0, 0, 0, 30)
 contentFrame.BackgroundTransparency = 1
 contentFrame.Parent = mainFrame
 
--- // Status-Label
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(1, -20, 0, 25)
 statusLabel.Position = UDim2.new(0, 10, 0, 15)
@@ -99,7 +93,6 @@ statusLabel.Font = Enum.Font.Gotham
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.Parent = contentFrame
 
--- // Toggle-Button (Start/Stop)
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(0, 120, 0, 40)
 toggleBtn.Position = UDim2.new(0.5, -60, 0, 70)
@@ -111,7 +104,7 @@ toggleBtn.Font = Enum.Font.GothamBold
 toggleBtn.BorderSizePixel = 0
 toggleBtn.Parent = contentFrame
 
--- // ---- DRAG-FUNKTION (GUI verschieben) ----
+-- // ---- DRAG ----
 local dragging = false
 local dragStart = nil
 local startPos = nil
@@ -139,8 +132,6 @@ end)
 
 -- // ---- MINIMIEREN ----
 local minimized = false
-local oldSize = mainFrame.Size
-
 minBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
     if minimized then
@@ -154,7 +145,7 @@ minBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- // ---- HARD-SHUTDOWN (X-Knopf) ----
+-- // ---- HARD-SHUTDOWN ----
 closeBtn.MouseButton1Click:Connect(function()
     shutdown = true
     running = false
@@ -166,7 +157,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- HILFSFUNKTION: Modell mit "OG", "Secret" oder "God" finden ----
+-- // ---- SUCHFUNKTIONEN ----
 local function findTargetModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
@@ -177,42 +168,25 @@ local function findTargetModel()
     for _, model in ipairs(folder:GetChildren()) do
         if model:IsA("Model") then
             local found = false
-            
-            -- 1. Name des Modells prüfen
-            if containsKeyword(model.Name) then
-                found = true
-            end
+            if containsKeyword(model.Name) then found = true end
 
-            -- 2. Alle Nachkommen (StringValue, ObjectValue, Part-Namen, etc.) prüfen
             if not found then
                 for _, child in ipairs(model:GetDescendants()) do
-                    -- Prüfe Werte von Value-Objekten
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
                        child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
                         local val = tostring(child.Value)
-                        if containsKeyword(val) then
-                            found = true
-                            break
-                        end
+                        if containsKeyword(val) then found = true break end
                     end
-                    -- Prüfe Namen von Parts
                     if child:IsA("BasePart") then
-                        if containsKeyword(child.Name) then
-                            found = true
-                            break
-                        end
+                        if containsKeyword(child.Name) then found = true break end
                     end
                 end
             end
 
-            -- 3. Attribute des Modells prüfen
             if not found then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
-                    if containsKeyword(val) then
-                        found = true
-                        break
-                    end
+                    if containsKeyword(val) then found = true break end
                 end
             end
 
@@ -224,7 +198,6 @@ local function findTargetModel()
     return nil
 end
 
--- // ---- HILFSFUNKTION: Nächstbesten Part im Modell finden ----
 local function getModelPart(model)
     if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
         return model.PrimaryPart
@@ -232,7 +205,26 @@ local function getModelPart(model)
     return model:FindFirstChildWhichIsA("BasePart")
 end
 
--- // ---- HAUPT-SCHLEIFE (wird in einer Koroutine gestartet) ----
+-- // ---- PROMPT FINDEN (NEU: sucht unter "Mesh") ----
+local function getPrompt(model)
+    -- 1. Suche nach einem Kind mit Namen "Mesh" (egal ob Part, Folder, etc.)
+    local meshContainer = model:FindFirstChild("Mesh")
+    if meshContainer then
+        -- Suche im Container nach einem ProximityPrompt
+        local prompt = meshContainer:FindFirstChildWhichIsA("ProximityPrompt")
+        if prompt then return prompt end
+        prompt = meshContainer:FindFirstChild("ProximityPrompt") -- fallback für benannte Suche
+        if prompt then return prompt end
+    end
+
+    -- 2. Fallback: Direkt im Modell suchen (falls der Prompt doch nicht unter "Mesh" liegt)
+    -- Kannst du entfernen, wenn du sicher bist, dass er immer unter "Mesh" ist.
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
+    if prompt then return prompt end
+    return model:FindFirstChild("ProximityPrompt")
+end
+
+-- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
     if loopCoroutine then
         task.cancel(loopCoroutine)
@@ -248,7 +240,6 @@ local function startLoop()
                 if targetModel then
                     statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name
 
-                    -- 1. Teleport zum Modell
                     local part = getModelPart(targetModel)
                     if part then
                         hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
@@ -259,25 +250,19 @@ local function startLoop()
                         continue
                     end
 
-                    -- 2. ProximityPrompt finden und auslösen
-                    local prompt = targetModel:FindFirstChildWhichIsA("ProximityPrompt")
-                    if not prompt then
-                        prompt = targetModel:FindFirstChild("ProximityPrompt") -- fallback
-                    end
-
+                    local prompt = getPrompt(targetModel)
                     if prompt then
-                        statusLabel.Text = "⌨️ Drücke Prompt..."
+                        statusLabel.Text = "⌨️ Drücke Prompt (unter 'Mesh')..."
                         prompt:InputHoldBegin()
                         task.wait(0.2)
                         prompt:InputHoldEnd()
                         task.wait(0.3)
                     else
-                        statusLabel.Text = "⚠️ Kein ProximityPrompt gefunden!"
+                        statusLabel.Text = "⚠️ Kein Prompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
                         continue
                     end
 
-                    -- 3. Zur Zielkoordinate teleportieren
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
                     task.wait(0.2)
@@ -287,10 +272,8 @@ local function startLoop()
                     statusLabel.Text = "❌ Kein Modell mit 'OG'/'Secret'/'God' gefunden!"
                 end
 
-                -- Warten bis zum nächsten Durchlauf
                 task.wait(LOOP_WAIT)
             else
-                -- Wenn running == false, einfach warten und Status aktualisieren
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
             end
@@ -298,10 +281,9 @@ local function startLoop()
     end)
 end
 
--- // ---- TOGGLE-FUNKTION ----
+-- // ---- TOGGLE ----
 local function toggle()
     if shutdown then return end
-
     running = not running
     if running then
         toggleBtn.Text = "⏹ Stop"
@@ -320,5 +302,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Drücke 'Start' um die Automatisierung zu beginnen.")
+print("✅ GUI geladen. Der Prompt wird unter 'Mesh' gesucht.")
 statusLabel.Text = "⏸ Gestoppt"
