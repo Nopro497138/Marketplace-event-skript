@@ -1,5 +1,5 @@
 -- // ---- EINSTELLUNGEN ----
-local TARGET_COORDS = CFrame.new(-150, 6, -597)   -- Ziel nach dem Prompt
+local TARGET_COORDS = CFrame.new(-150, 6, -597)
 local LOOP_WAIT = 0.05
 local HOLD_TIME = 0.8
 local FIRE_INTERVAL = 0.05
@@ -19,18 +19,15 @@ local loopCoroutine = nil
 -- // ---- HILFSFUNKTIONEN (Text-Suche) ----
 local function textContains(instance, searchText)
     if not instance then return false end
-    -- Name prüfen
     if instance.Name and string.find(instance.Name, searchText, 1, true) then
         return true
     end
-    -- Attribute prüfen
     local attrs = instance:GetAttributes()
     for _, v in pairs(attrs) do
         if type(v) == "string" and string.find(v, searchText, 1, true) then
             return true
         end
     end
-    -- Kinder durchsuchen (rekursiv) nach Text-Objekten
     for _, child in ipairs(instance:GetChildren()) do
         if child:IsA("StringValue") and child.Value and string.find(child.Value, searchText, 1, true) then
             return true
@@ -51,7 +48,7 @@ local function textContains(instance, searchText)
     return false
 end
 
--- // ---- PROMPT FINDEN (rekursiv im gesamten Modell) ----
+-- // ---- PROMPT FINDEN (rekursiv) ----
 local function findPrompt(instance)
     if instance:IsA("ProximityPrompt") then
         return instance
@@ -65,7 +62,7 @@ local function findPrompt(instance)
     return nil
 end
 
--- // ---- POSITION DES MODELLS (PrimaryPart, erstes BasePart oder Pivot) ----
+-- // ---- POSITION DES MODELLS ----
 local function getModelPosition(model)
     if model:IsA("Model") then
         if model.PrimaryPart then
@@ -81,22 +78,53 @@ local function getModelPosition(model)
     return nil
 end
 
--- // ---- UNEQUIP (optional, kann bleiben) ----
+-- // ---- UNEQUIP (robust) ----
 local function unequipAll()
-    local char = player.Character
-    if not char then return end
-    for _, obj in ipairs(char:GetChildren()) do
-        if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy()
+    local success, err = pcall(function()
+        local char = player.Character
+        if not char then return end
+        for _, obj in ipairs(char:GetChildren()) do
+            if obj:IsA("Tool") or obj:IsA("HopperBin") then
+                obj:Destroy()
+            end
         end
-    end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid:UnequipTools()
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:UnequipTools()
+        end
+    end)
+    if not success then
+        warn("Unequip fehlgeschlagen: " .. tostring(err))
     end
 end
 
--- // ---- GUI ERSTELLEN (exakt wie im Beispiel, nur Titel geändert) ----
+-- // ---- PROMPT FEUERN (robust mit Fallbacks) ----
+local function firePrompt(prompt)
+    if not prompt then return false end
+    local success = false
+    -- Versuche fireproximityprompt
+    if fireproximityprompt then
+        success = pcall(fireproximityprompt, prompt)
+        if success then return true end
+    end
+    -- Versuche firepickupprompt
+    if firepickupprompt then
+        success = pcall(firepickupprompt, prompt)
+        if success then return true end
+    end
+    -- Fallback: manuell InputHold
+    if prompt.InputHoldBegin and prompt.InputHoldEnd then
+        success = pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(0.05)
+            prompt:InputHoldEnd()
+        end)
+        if success then return true end
+    end
+    return false
+end
+
+-- // ---- GUI ERSTELLEN (unverändert) ----
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoFarmGUI"
 screenGui.ResetOnSpawn = false
@@ -123,7 +151,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, -70, 1, 0)
 titleText.Position = UDim2.new(0, 5, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "⚡ Auto Celestial / OG"   -- geänderter Titel
+titleText.Text = "⚡ Auto Celestial / OG"
 titleText.TextColor3 = Color3.new(1, 1, 1)
 titleText.TextSize = 14
 titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -233,7 +261,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE (workspace.Bases, Celestial/OG in Name, Attributen oder Text-Kindern) ----
+-- // ---- MODELL-SUCHE (workspace.Bases) ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Bases")
     if not folder then
@@ -251,7 +279,7 @@ local function findBestModel()
     return nil
 end
 
--- // ---- HAUPT-SCHLEIFE ----
+-- // ---- HAUPT-SCHLEIFE (robust) ----
 local function startLoop()
     if loopCoroutine then
         task.cancel(loopCoroutine)
@@ -267,10 +295,17 @@ local function startLoop()
                 if targetModel then
                     statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name
 
-                    -- 1. Position des Modells ermitteln und hinteleportieren
+                    -- 1. Position ermitteln und teleportieren
                     local modelPos = getModelPosition(targetModel)
                     if modelPos then
-                        hrp.CFrame = CFrame.new(modelPos + Vector3.new(0, 3, 0))
+                        local success, err = pcall(function()
+                            hrp.CFrame = CFrame.new(modelPos + Vector3.new(0, 3, 0))
+                        end)
+                        if not success then
+                            statusLabel.Text = "⚠️ Teleport fehlgeschlagen: " .. tostring(err)
+                            task.wait(LOOP_WAIT)
+                            goto continue
+                        end
                         task.wait(0.1)
                     else
                         statusLabel.Text = "⚠️ Keine Position im Modell!"
@@ -278,16 +313,16 @@ local function startLoop()
                         goto continue
                     end
 
-                    -- 2. Prompt suchen (rekursiv im gesamten Modell)
+                    -- 2. Prompt suchen
                     local prompt = findPrompt(targetModel)
                     if prompt then
                         statusLabel.Text = "⌨️ Halte ProximityPrompt (" .. HOLD_TIME .. "s)..."
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
-                            if fireproximityprompt then
-                                fireproximityprompt(prompt)
-                            else
-                                warn("❌ fireproximityprompt nicht verfügbar!")
+                            if not running then break end
+                            local fired = firePrompt(prompt)
+                            if not fired then
+                                statusLabel.Text = "⚠️ Prompt konnte nicht gefeuert werden!"
                                 break
                             end
                             task.wait(FIRE_INTERVAL)
@@ -299,12 +334,17 @@ local function startLoop()
                         goto continue
                     end
 
-                    -- 3. Teleport zur Zielposition
+                    -- 3. Teleport zu Ziel
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
-                    hrp.CFrame = TARGET_COORDS
+                    local success, err = pcall(function()
+                        hrp.CFrame = TARGET_COORDS
+                    end)
+                    if not success then
+                        statusLabel.Text = "⚠️ Ziel-Teleport fehlgeschlagen: " .. tostring(err)
+                    end
                     task.wait(0.1)
 
-                    -- 4. (Optional) Inventar leeren – kann bleiben, schadet nicht
+                    -- 4. Inventar leeren (optional)
                     statusLabel.Text = "🧹 Leere Inventar..."
                     unequipAll()
                     task.wait(0.05)
