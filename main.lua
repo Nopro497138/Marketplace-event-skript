@@ -1,332 +1,388 @@
--- // ---- EINSTELLUNGEN ----
-local TARGET_COORDS = CFrame.new(-126, 13, -182)
-local LOOP_WAIT = 0.05
-local HOLD_TIME = 0.8
-local FIRE_INTERVAL = 0.05
+--[[
+    Auto Celestial/OG – Delta Executor
+    - Durchsucht workspace.Bases nach Modellen mit "Celestial" oder "OG"
+    - Teleportiert den Spieler zum Modell (PrimaryPart / erstes Teil)
+    - Feuert den enthaltenen ProximityPrompt und "hält" ihn 0.8s
+    - Teleportiert zur festen Position -150, 6, -597
+    - Wiederholt den Zyklus
+    - GUI mit Toggle, Minimize, Close und Drag
+]]
 
--- // ---- SERVICE ----
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
+local LocalPlayer = Players.LocalPlayer
 
--- // ---- STATUS ----
-local running = false
-local shutdown = false
-local loopCoroutine = nil
+if not fireproximityprompt then
+    warn("⚠️  fireproximityprompt nicht gefunden – bitte Delta Executor verwenden!")
+end
 
--- // ---- HILFSFUNKTION: Keyword im Text erkennen ----
-local function findKeyword(text)
-    local lower = string.lower(text)
-    if string.find(lower, "god") then return "god" end
-    if string.find(lower, "og") then return "og" end
-    if string.find(lower, "secret") then return "secret" end
+-- ============================
+-- UI Erstellung (unverändert)
+-- ============================
+local function createUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoCelestialOG"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 300, 0, 200)
+    mainFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(25, 35, 50)
+    mainFrame.BackgroundTransparency = 0.15
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ClipsDescendants = true
+    mainFrame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+
+    local shadow = Instance.new("UIShadow")
+    shadow.Color = Color3.fromRGB(0, 0, 0)
+    shadow.Offset = Vector2.new(2, 2)
+    shadow.BlurRadius = 8
+    shadow.Transparency = 0.6
+    shadow.Parent = mainFrame
+
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 30)
+    titleBar.BackgroundColor3 = Color3.fromRGB(40, 55, 80)
+    titleBar.BackgroundTransparency = 0.2
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 12)
+    titleCorner.Parent = titleBar
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -60, 1, 0)
+    titleLabel.Position = UDim2.new(0, 5, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "⚡ Auto Celestial / OG"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextSize = 16
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+
+    local minimizeBtn = Instance.new("TextButton")
+    minimizeBtn.Size = UDim2.new(0, 25, 0, 25)
+    minimizeBtn.Position = UDim2.new(1, -55, 0, 2.5)
+    minimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 75, 100)
+    minimizeBtn.BackgroundTransparency = 0.2
+    minimizeBtn.BorderSizePixel = 0
+    minimizeBtn.Text = "─"
+    minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    minimizeBtn.TextSize = 18
+    minimizeBtn.Font = Enum.Font.GothamBold
+    minimizeBtn.Parent = titleBar
+
+    local minCorner = Instance.new("UICorner")
+    minCorner.CornerRadius = UDim.new(0, 6)
+    minCorner.Parent = minimizeBtn
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 25, 0, 25)
+    closeBtn.Position = UDim2.new(1, -28, 0, 2.5)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    closeBtn.BackgroundTransparency = 0.2
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.TextSize = 16
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.Parent = titleBar
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 6)
+    closeCorner.Parent = closeBtn
+
+    local content = Instance.new("Frame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, 0, 1, -30)
+    content.Position = UDim2.new(0, 0, 0, 30)
+    content.BackgroundTransparency = 1
+    content.Parent = mainFrame
+
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 200, 0, 40)
+    toggleBtn.Position = UDim2.new(0.5, -100, 0.5, -20)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+    toggleBtn.BackgroundTransparency = 0.1
+    toggleBtn.BorderSizePixel = 0
+    toggleBtn.Text = "▶ Start"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.TextSize = 18
+    toggleBtn.Font = Enum.Font.GothamSemibold
+    toggleBtn.Parent = content
+
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 10)
+    toggleCorner.Parent = toggleBtn
+
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0, 25)
+    statusLabel.Position = UDim2.new(0, 0, 1, -30)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: Idle"
+    statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    statusLabel.Parent = content
+
+    -- Drag-Funktion
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
+                                       startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    titleBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+
+    -- Minimize / Maximize
+    local minimized = false
+    local originalSize = mainFrame.Size
+    minimizeBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        if minimized then
+            mainFrame.Size = UDim2.new(0, 300, 0, 30)
+            content.Visible = false
+            minimizeBtn.Text = "□"
+        else
+            mainFrame.Size = originalSize
+            content.Visible = true
+            minimizeBtn.Text = "─"
+        end
+    end)
+
+    -- Close
+    closeBtn.MouseButton1Click:Connect(function()
+        screenGui:Destroy()
+        isRunning = false
+    end)
+
+    return {
+        ScreenGui = screenGui,
+        MainFrame = mainFrame,
+        ToggleBtn = toggleBtn,
+        StatusLabel = statusLabel,
+        Content = content,
+        MinimizeBtn = minimizeBtn,
+        CloseBtn = closeBtn
+    }
+end
+
+-- ============================
+-- Hilfsfunktionen
+-- ============================
+local function textContains(instance, searchText)
+    if not instance then return false end
+    if instance.Name and string.find(instance.Name, searchText, 1, true) then
+        return true
+    end
+    local attrs = instance:GetAttributes()
+    for _, v in pairs(attrs) do
+        if type(v) == "string" and string.find(v, searchText, 1, true) then
+            return true
+        end
+    end
+    for _, child in ipairs(instance:GetChildren()) do
+        if child:IsA("StringValue") and child.Value and string.find(child.Value, searchText, 1, true) then
+            return true
+        end
+        if child:IsA("TextLabel") and child.Text and string.find(child.Text, searchText, 1, true) then
+            return true
+        end
+        if child:IsA("TextButton") and child.Text and string.find(child.Text, searchText, 1, true) then
+            return true
+        end
+        if child:IsA("TextBox") and child.Text and string.find(child.Text, searchText, 1, true) then
+            return true
+        end
+        if textContains(child, searchText) then
+            return true
+        end
+    end
+    return false
+end
+
+local function findPrompt(instance)
+    if instance:IsA("ProximityPrompt") then
+        return instance
+    end
+    for _, child in ipairs(instance:GetChildren()) do
+        local found = findPrompt(child)
+        if found then
+            return found
+        end
+    end
     return nil
 end
 
--- // ---- GUI ERSTELLEN (unverändert) ----
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoFarmGUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = player:WaitForChild("PlayerGui")
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 280, 0, 160)
-mainFrame.Position = UDim2.new(0.5, -140, 0.5, -80)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-mainFrame.BackgroundTransparency = 0.15
-mainFrame.BorderSizePixel = 2
-mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 120)
-mainFrame.ClipsDescendants = true
-mainFrame.Parent = screenGui
-
-local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 30)
-titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
-titleBar.BackgroundTransparency = 0.3
-titleBar.BorderSizePixel = 0
-titleBar.Parent = mainFrame
-
-local titleText = Instance.new("TextLabel")
-titleText.Size = UDim2.new(1, -70, 1, 0)
-titleText.Position = UDim2.new(0, 5, 0, 0)
-titleText.BackgroundTransparency = 1
-titleText.Text = "🤖 Auto Farm (Brainrots)"
-titleText.TextColor3 = Color3.new(1, 1, 1)
-titleText.TextSize = 14
-titleText.TextXAlignment = Enum.TextXAlignment.Left
-titleText.Font = Enum.Font.GothamBold
-titleText.Parent = titleBar
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 30, 1, -4)
-minBtn.Position = UDim2.new(1, -65, 0, 2)
-minBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-minBtn.Text = "_"
-minBtn.TextColor3 = Color3.new(1, 1, 1)
-minBtn.TextSize = 20
-minBtn.Font = Enum.Font.GothamBold
-minBtn.BorderSizePixel = 0
-minBtn.Parent = titleBar
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 30, 1, -4)
-closeBtn.Position = UDim2.new(1, -32, 0, 2)
-closeBtn.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.new(1, 1, 1)
-closeBtn.TextSize = 16
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.BorderSizePixel = 0
-closeBtn.Parent = titleBar
-
-local contentFrame = Instance.new("Frame")
-contentFrame.Size = UDim2.new(1, 0, 1, -30)
-contentFrame.Position = UDim2.new(0, 0, 0, 30)
-contentFrame.BackgroundTransparency = 1
-contentFrame.Parent = mainFrame
-
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0, 25)
-statusLabel.Position = UDim2.new(0, 10, 0, 15)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "⏸ Gestoppt"
-statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-statusLabel.TextSize = 14
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.Parent = contentFrame
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0, 120, 0, 40)
-toggleBtn.Position = UDim2.new(0.5, -60, 0, 70)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-toggleBtn.Text = "▶ Start"
-toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-toggleBtn.TextSize = 16
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.BorderSizePixel = 0
-toggleBtn.Parent = contentFrame
-
--- // ---- DRAG ----
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
+-- Ermittelt eine sinnvolle Position des Modells (PrimaryPart, erstes BasePart, oder Modell-Position)
+local function getModelPosition(model)
+    if model:IsA("Model") then
+        if model.PrimaryPart then
+            return model.PrimaryPart.Position
+        end
+        for _, child in ipairs(model:GetDescendants()) do
+            if child:IsA("BasePart") then
+                return child.Position
+            end
+        end
+        return model:GetPivot().Position
     end
-end)
+    return nil
+end
 
-titleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
+-- ============================
+-- Hauptlogik (neue Reihenfolge)
+-- ============================
+local ui = createUI()
+local toggleBtn = ui.ToggleBtn
+local statusLabel = ui.StatusLabel
+local isRunning = false
 
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
+local function updateStatus(text, color)
+    statusLabel.Text = "Status: " .. text
+    statusLabel.TextColor3 = color or Color3.fromRGB(200, 200, 200)
+end
 
--- // ---- MINIMIEREN ----
-local minimized = false
-minBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    if minimized then
-        contentFrame.Visible = false
-        mainFrame.Size = UDim2.new(0, 280, 0, 30)
-        minBtn.Text = "□"
-    else
-        contentFrame.Visible = true
-        mainFrame.Size = UDim2.new(0, 280, 0, 160)
-        minBtn.Text = "_"
-    end
-end)
-
--- // ---- HARD-SHUTDOWN ----
-closeBtn.MouseButton1Click:Connect(function()
-    shutdown = true
-    running = false
-    if loopCoroutine then
-        task.cancel(loopCoroutine)
-        loopCoroutine = nil
-    end
-    screenGui:Destroy()
-    print("🔴 Skript wurde vollständig beendet.")
-end)
-
--- // ---- MODELL-SUCHE – NUR MODELLNAME WIRD GEPRÜFT ----
-local function findBestModel()
-    local folder = workspace:FindFirstChild("Brainrots")
-    if not folder then
-        statusLabel.Text = "❌ Ordner 'Brainrots' nicht gefunden!"
-        return nil, nil
+local function executeCycle()
+    local bases = workspace:FindFirstChild("Bases")
+    if not bases then
+        warn("❌ workspace.Bases nicht gefunden!")
+        return false
     end
 
-    local bestModel = nil
-    local bestPriority = 3
-    local foundKeyword = nil
-
-    for _, model in ipairs(folder:GetChildren()) do
-        if model:IsA("Model") then
-            local kw = findKeyword(model.Name)   -- nur der Name zählt
-            if kw then
-                local prio = (kw == "god" or kw == "og") and 1 or 2  -- secret = 2
-                if prio < bestPriority then
-                    bestPriority = prio
-                    bestModel = model
-                    foundKeyword = kw
-                    if bestPriority == 1 then break end
-                end
+    -- Sammle alle passenden Modelle
+    local targetModels = {}
+    for _, child in ipairs(bases:GetChildren()) do
+        if child:IsA("Model") then
+            if textContains(child, "Celestial") or textContains(child, "OG") then
+                table.insert(targetModels, child)
             end
         end
     end
 
-    if bestModel and foundKeyword then
-        return bestModel, foundKeyword
-    else
-        return nil, nil
+    if #targetModels == 0 then
+        warn("⚠️  Kein Modell mit 'Celestial' oder 'OG' gefunden.")
+        return false
     end
-end
 
--- // ---- HILFSFUNKTION: Part im Modell finden ----
-local function getModelPart(model)
-    if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
-        return model.PrimaryPart
-    end
-    return model:FindFirstChildWhichIsA("BasePart")
-end
+    -- Durchlaufe alle gefundenen Modelle (optional: nur das erste? Hier alle der Reihe nach)
+    for _, model in ipairs(targetModels) do
+        if not isRunning then break end
 
--- // ---- PROMPT FINDEN (NUR IM ÜBERGEBENEN MODELL) ----
-local function getPrompt(model)
-    local meshContainer = model:FindFirstChild("Mesh")
-    if meshContainer then
-        local prompt = meshContainer:FindFirstChildWhichIsA("PickupPrompt")
-        if prompt then return prompt end
-        prompt = meshContainer:FindFirstChild("PickupPrompt")
-        if prompt then return prompt end
-    end
-    local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
-    if prompt then return prompt end
-    return model:FindFirstChild("PickupPrompt")
-end
-
--- // ---- UNEQUIP: Alle Tools entfernen ----
-local function unequipAll()
-    local char = player.Character
-    if not char then return end
-    for _, obj in ipairs(char:GetChildren()) do
-        if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy()
+        -- 1. Position des Modells ermitteln
+        local modelPos = getModelPosition(model)
+        if not modelPos then
+            warn("❌ Keine gültige Position für Modell: " .. model.Name)
+            continue
         end
+
+        -- 2. Spieler zum Modell teleportieren
+        local character = LocalPlayer.Character
+        if not character then
+            warn("❌ Charakter nicht vorhanden.")
+            return false
+        end
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            warn("❌ HumanoidRootPart nicht gefunden.")
+            return false
+        end
+
+        -- Teleport zum Modell (etwas oberhalb, um nicht in den Boden zu geraten)
+        local teleportPos = modelPos + Vector3.new(0, 3, 0)
+        hrp.CFrame = CFrame.new(teleportPos)
+        task.wait(0.1) -- kurze Verzögerung für Stabilität
+
+        -- 3. ProximityPrompt finden und feuern
+        local prompt = findPrompt(model)
+        if prompt and fireproximityprompt then
+            fireproximityprompt(prompt)
+            -- "Halten" für 0.8 Sekunden (während der Spieler dort steht)
+            task.wait(0.8)
+        else
+            warn("⚠️  Kein ProximityPrompt oder fireproximityprompt nicht verfügbar in: " .. model.Name)
+        end
+
+        -- 4. Zur festen Position teleportieren
+        hrp.CFrame = CFrame.new(-150, 6, -597)
+        task.wait(0.2) -- kleine Pause vor nächstem Zyklus
     end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid:UnequipTools()
-    end
+
+    return true
 end
 
--- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
-    if loopCoroutine then
-        task.cancel(loopCoroutine)
-        loopCoroutine = nil
-    end
+    isRunning = true
+    toggleBtn.Text = "⏹ Stop"
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+    updateStatus("Running...", Color3.fromRGB(100, 255, 100))
 
-    loopCoroutine = task.spawn(function()
-        while not shutdown do
-            if running then
-                statusLabel.Text = "🔄 Suche bestes Modell..."
-                local targetModel, keyword = findBestModel()
-
-                if targetModel then
-                    statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name .. " (" .. (keyword or "?") .. ")"
-
-                    local part = getModelPart(targetModel)
-                    if part then
-                        hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-                        task.wait(0.1)
-                    else
-                        statusLabel.Text = "⚠️ Kein Part im Modell!"
-                        task.wait(LOOP_WAIT)
-                        goto continue
-                    end
-
-                    local prompt = getPrompt(targetModel)   -- sucht NUR in diesem Modell
-                    if prompt then
-                        statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
-                        local startTime = tick()
-                        while tick() - startTime < HOLD_TIME do
-                            pcall(function()
-                                if fireproximityprompt then
-                                    fireproximityprompt(prompt)
-                                elseif firepickupprompt then
-                                    firepickupprompt(prompt)
-                                else
-                                    prompt:InputHoldBegin()
-                                    task.wait(0.05)
-                                    prompt:InputHoldEnd()
-                                end
-                            end)
-                            task.wait(FIRE_INTERVAL)
-                        end
-                        task.wait(0.1)
-                    else
-                        statusLabel.Text = "⚠️ Kein PickupPrompt im Modell!"
-                        task.wait(LOOP_WAIT)
-                        goto continue
-                    end
-
-                    statusLabel.Text = "🚀 Teleporte zu Ziel..."
-                    hrp.CFrame = TARGET_COORDS
-                    task.wait(0.1)
-
-                    statusLabel.Text = "🧹 Leere Inventar..."
-                    unequipAll()
-                    task.wait(0.05)
-
-                    statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
-                else
-                    statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' im Namen!"
-                end
-
-                ::continue::
-                task.wait(LOOP_WAIT)
-            else
-                statusLabel.Text = "⏸ Gestoppt"
-                task.wait(0.5)
+    task.spawn(function()
+        while isRunning do
+            local success = pcall(executeCycle)
+            if not success then
+                warn("❌ Fehler im Zyklus.")
+            end
+            if isRunning then
+                task.wait(1) -- Warte 1 Sekunde zwischen den Zyklen
             end
         end
+        updateStatus("Stopped", Color3.fromRGB(255, 100, 100))
+        toggleBtn.Text = "▶ Start"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
     end)
 end
 
--- // ---- TOGGLE ----
-local function toggle()
-    if shutdown then return end
-    running = not running
-    if running then
-        toggleBtn.Text = "⏹ Stop"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-        statusLabel.Text = "▶ Läuft..."
-        if not loopCoroutine or loopCoroutine.Status == "Dead" then
-            startLoop()
-        end
+-- Toggle
+toggleBtn.MouseButton1Click:Connect(function()
+    if isRunning then
+        isRunning = false
+        updateStatus("Stopping...", Color3.fromRGB(255, 200, 100))
     else
-        toggleBtn.Text = "▶ Start"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-        statusLabel.Text = "⏸ Gestoppt"
+        startLoop()
     end
-end
+end)
 
-toggleBtn.MouseButton1Click:Connect(toggle)
+-- Initialer Status
+updateStatus("Idle", Color3.fromRGB(200, 200, 200))
 
--- // ---- START ----
-print("✅ GUI geladen. Es werden NUR Brainrots mit 'God', 'OG' oder 'Secret' im Namen verarbeitet.")
-statusLabel.Text = "⏸ Gestoppt"
+-- Bei Schließen der GUI stoppen
+ui.CloseBtn.MouseButton1Click:Connect(function()
+    isRunning = false
+end)
