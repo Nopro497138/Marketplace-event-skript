@@ -168,7 +168,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE MIT PRIORITÄT (NUR GOD/OG/SECRET) ----
+-- // ---- MODELL-SUCHE MIT PRIORITÄT ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
@@ -185,7 +185,6 @@ local function findBestModel()
             local currentPriority = 3
             local keywordFound = nil
 
-            -- Modellnamen prüfen
             local kw = findKeyword(model.Name)
             if kw then
                 local prio = getPriority(kw)
@@ -195,7 +194,6 @@ local function findBestModel()
                 end
             end
 
-            -- In Descendants nach Werten und Part-Namen suchen
             if currentPriority > 1 then
                 for _, child in ipairs(model:GetDescendants()) do
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
@@ -225,7 +223,6 @@ local function findBestModel()
                 end
             end
 
-            -- Attribute prüfen
             if currentPriority > 1 then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
@@ -241,7 +238,6 @@ local function findBestModel()
                 end
             end
 
-            -- Nur wenn ein Keyword gefunden wurde (currentPriority < 3) und besser als bisher
             if currentPriority < bestPriority then
                 bestPriority = currentPriority
                 bestModel = model
@@ -251,8 +247,7 @@ local function findBestModel()
         end
     end
 
-    -- Sicherstellen, dass tatsächlich ein Keyword gefunden wurde
-    if bestModel and foundKeyword then
+    if bestModel then
         return bestModel, foundKeyword
     else
         return nil, nil
@@ -287,12 +282,13 @@ local function unequipAll()
     if not char then return end
     for _, obj in ipairs(char:GetChildren()) do
         if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy()
+            obj:Destroy() -- oder obj.Parent = nil, je nachdem was stabiler ist
         end
     end
+    -- Optional: Auch den ActiveTool-Status zurücksetzen (falls vorhanden)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        humanoid:UnequipTools()
+        humanoid:UnequipTools() -- Native Methode, um alle Tools abzulegen
     end
 end
 
@@ -319,13 +315,14 @@ local function startLoop()
                     else
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
                         task.wait(LOOP_WAIT)
-                        goto continue
+                        continue
                     end
 
                     local prompt = getPrompt(targetModel)
                     if prompt then
                         statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
                         
+                        -- Prompt wiederholt feuern (simuliert Halten)
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
                             pcall(function()
@@ -345,14 +342,14 @@ local function startLoop()
                     else
                         statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
-                        goto continue
+                        continue
                     end
 
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
                     task.wait(0.1)
 
-                    -- Inventar leeren (unequip all) – das Ausrüsten von Slot 1 wurde entfernt
+                    -- // ---- ALLES UNEQUIPPEN ----
                     statusLabel.Text = "🧹 Leere Inventar..."
                     unequipAll()
                     task.wait(0.05)
@@ -362,8 +359,7 @@ local function startLoop()
                     statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
-                ::continue::
-                task.wait(LOOP_WAIT)
+                task.wait(LOOP_WAIT) -- minimale Pause
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
