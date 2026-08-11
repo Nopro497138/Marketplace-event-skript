@@ -1,15 +1,18 @@
 -- // ---- EINSTELLUNGEN ----
-local TARGET_COORDS = CFrame.new(-150, 6, -597) -- Zielkoordinaten
-local LOOP_WAIT = 0.05   -- minimale Pause zwischen Runs
-local HOLD_TIME = 0.8     -- Haltezeit des Prompts (Sekunden)
-local FIRE_INTERVAL = 0.05 -- Intervall für wiederholtes Feuern
+local TARGET_COORDS = CFrame.new(-150, 6, -597)
+local LOOP_WAIT = 0.05
+local HOLD_TIME = 0.8
+local FIRE_INTERVAL = 0.05
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
+
+-- // ---- FALLBACK FÜR TASK (falls nicht vorhanden) ----
+local waitFn = task and task.wait or wait
+local spawnFn = task and task.spawn or function(f) coroutine.wrap(f)() end
+local cancelFn = task and task.cancel or function() end
 
 -- // ---- STATUS ----
 local running = false
@@ -18,6 +21,7 @@ local loopCoroutine = nil
 
 -- // ---- HILFSFUNKTION: Keyword im Text erkennen ----
 local function findKeyword(text)
+    if type(text) ~= "string" then return nil end
     local lower = string.lower(text)
     if string.find(lower, "celestial") then return "celestial" end
     if string.find(lower, "og") then return "og" end
@@ -154,7 +158,7 @@ closeBtn.MouseButton1Click:Connect(function()
     shutdown = true
     running = false
     if loopCoroutine then
-        task.cancel(loopCoroutine)
+        cancelFn(loopCoroutine)
         loopCoroutine = nil
     end
     screenGui:Destroy()
@@ -169,16 +173,15 @@ local function findBestModel()
         return nil, nil
     end
 
-    -- Wir nehmen das erste Modell, das eines der Keywords enthält
     for _, model in ipairs(folder:GetChildren()) do
         if model:IsA("Model") then
             local keywordFound = nil
 
-            -- 1. Modellname prüfen
+            -- 1. Modellname
             local kw = findKeyword(model.Name)
             if kw then keywordFound = kw end
 
-            -- 2. Alle Descendants nach String-Werten durchsuchen
+            -- 2. Werte in Descendants (StringValue, IntValue, ...)
             if not keywordFound then
                 for _, child in ipairs(model:GetDescendants()) do
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or
@@ -193,7 +196,7 @@ local function findBestModel()
                 end
             end
 
-            -- 3. Attribute prüfen
+            -- 3. Attribute
             if not keywordFound then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
@@ -224,17 +227,6 @@ end
 
 -- // ---- PROMPT FINDEN (ProximityPrompt oder PickupPrompt) ----
 local function getPrompt(model)
-    -- Suche zuerst nach ProximityPrompt
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
-    if prompt then return prompt end
-    prompt = model:FindFirstChild("ProximityPrompt")
-    if prompt then return prompt end
-    -- Fallback: PickupPrompt
-    prompt = model:FindFirstChildWhichIsA("PickupPrompt")
-    if prompt then return prompt end
-    prompt = model:FindFirstChild("PickupPrompt")
-    if prompt then return prompt end
-    -- Auch in Descendants suchen
     for _, child in ipairs(model:GetDescendants()) do
         if child:IsA("ProximityPrompt") or child:IsA("PickupPrompt") then
             return child
@@ -243,14 +235,36 @@ local function getPrompt(model)
     return nil
 end
 
+-- // ---- PROMPT HALTEN (robust mit mehreren Versuchen) ----
+local function holdPrompt(prompt)
+    local success, err = pcall(function()
+        -- Versuche verschiedene Auslösemethoden
+        if fireproximityprompt and type(fireproximityprompt) == "function" then
+            fireproximityprompt(prompt)
+        elseif firepickupprompt and type(firepickupprompt) == "function" then
+            firepickupprompt(prompt)
+        elseif prompt.Fire and type(prompt.Fire) == "function" then
+            prompt:Fire()
+        else
+            -- Letzter Ausweg: InputHold simulieren
+            prompt:InputHoldBegin()
+            waitFn(0.05)
+            prompt:InputHoldEnd()
+        end
+    end)
+    if not success then
+        warn("Fehler beim Halten des Prompts:", err)
+    end
+end
+
 -- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
     if loopCoroutine then
-        task.cancel(loopCoroutine)
+        cancelFn(loopCoroutine)
         loopCoroutine = nil
     end
 
-    loopCoroutine = task.spawn(function()
+    loopCoroutine = spawnFn(function()
         while not shutdown do
             if running then
                 statusLabel.Text = "🔄 Suche bestes Modell..."
@@ -261,11 +275,25 @@ local function startLoop()
 
                     local part = getModelPart(targetModel)
                     if part then
-                        hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-                        task.wait(0.1)
+                        local char = player.Character
+                        if char then
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+                                waitFn(0.1)
+                            else
+                                statusLabel.Text = "⚠️ Kein HumanoidRootPart!"
+                                waitFn(LOOP_WAIT)
+                                goto continue
+                            end
+                        else
+                            statusLabel.Text = "⚠️ Charakter nicht gefunden!"
+                            waitFn(LOOP_WAIT)
+                            goto continue
+                        end
                     else
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
-                        task.wait(LOOP_WAIT)
+                        waitFn(LOOP_WAIT)
                         goto continue
                     end
 
@@ -274,29 +302,25 @@ local function startLoop()
                         statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
-                            pcall(function()
-                                if fireproximityprompt then
-                                    fireproximityprompt(prompt)
-                                elseif firepickupprompt then
-                                    firepickupprompt(prompt)
-                                else
-                                    prompt:InputHoldBegin()
-                                    task.wait(0.05)
-                                    prompt:InputHoldEnd()
-                                end
-                            end)
-                            task.wait(FIRE_INTERVAL)
+                            holdPrompt(prompt)
+                            waitFn(FIRE_INTERVAL)
                         end
-                        task.wait(0.1)
+                        waitFn(0.1)
                     else
                         statusLabel.Text = "⚠️ Kein Prompt im Modell!"
-                        task.wait(LOOP_WAIT)
+                        waitFn(LOOP_WAIT)
                         goto continue
                     end
 
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
-                    hrp.CFrame = TARGET_COORDS
-                    task.wait(0.1)
+                    local char = player.Character
+                    if char then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            hrp.CFrame = TARGET_COORDS
+                            waitFn(0.1)
+                        end
+                    end
 
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
@@ -304,10 +328,10 @@ local function startLoop()
                 end
 
                 ::continue::
-                task.wait(LOOP_WAIT)
+                waitFn(LOOP_WAIT)
             else
                 statusLabel.Text = "⏸ Gestoppt"
-                task.wait(0.5)
+                waitFn(0.5)
             end
         end
     end)
@@ -321,7 +345,7 @@ local function toggle()
         toggleBtn.Text = "⏹ Stop"
         toggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
         statusLabel.Text = "▶ Läuft..."
-        if not loopCoroutine or loopCoroutine.Status == "Dead" then
+        if not loopCoroutine or (type(loopCoroutine) == "thread" and coroutine.status(loopCoroutine) == "dead") then
             startLoop()
         end
     else
