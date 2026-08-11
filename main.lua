@@ -14,10 +14,21 @@ local running = false
 local shutdown = false
 local loopCoroutine = nil
 
--- // ---- HILFSFUNKTION: Prüft, ob ein Text eines der Keywords enthält ----
-local function containsKeyword(text)
+-- // ---- HILFSFUNKTION: Erkennen des Keywords mit Priorität ----
+-- Gibt zurück: "god", "og" oder "secret" – oder nil, wenn keins.
+local function findKeyword(text)
     local lower = string.lower(text)
-    return string.find(lower, "og") or string.find(lower, "secret") or string.find(lower, "god")
+    if string.find(lower, "god") then return "god" end
+    if string.find(lower, "og") then return "og" end
+    if string.find(lower, "secret") then return "secret" end
+    return nil
+end
+
+-- Gibt die Priorität (Zahl) für ein Keyword zurück: 1 = höchste (God/OG), 2 = Secret
+local function getPriority(keyword)
+    if keyword == "god" or keyword == "og" then return 1 end
+    if keyword == "secret" then return 2 end
+    return 3 -- Fallback (sollte nicht vorkommen)
 end
 
 -- // ---- GUI ERSTELLEN (unverändert) ----
@@ -157,47 +168,97 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- SUCHFUNKTIONEN ----
-local function findTargetModel()
+-- // ---- MODELL-SUCHE MIT PRIORITÄT ----
+local function findBestModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
         statusLabel.Text = "❌ Ordner 'Brainrots' nicht gefunden!"
-        return nil
+        return nil, nil
     end
+
+    local bestModel = nil
+    local bestPriority = 3   -- je niedriger, desto besser
+    local foundKeyword = nil
 
     for _, model in ipairs(folder:GetChildren()) do
         if model:IsA("Model") then
-            local found = false
-            if containsKeyword(model.Name) then found = true end
+            local currentPriority = 3
+            local keywordFound = nil
 
-            if not found then
+            -- Prüfe Modell-Name
+            local kw = findKeyword(model.Name)
+            if kw then
+                local prio = getPriority(kw)
+                if prio < currentPriority then
+                    currentPriority = prio
+                    keywordFound = kw
+                end
+            end
+
+            -- Prüfe alle Nachkommen (Value-Objekte, Part-Namen)
+            if currentPriority > 1 then -- nur weitersuchen, wenn noch nicht Prio 1 gefunden
                 for _, child in ipairs(model:GetDescendants()) do
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
                        child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
                         local val = tostring(child.Value)
-                        if containsKeyword(val) then found = true break end
+                        kw = findKeyword(val)
+                        if kw then
+                            local prio = getPriority(kw)
+                            if prio < currentPriority then
+                                currentPriority = prio
+                                keywordFound = kw
+                                if currentPriority == 1 then break end
+                            end
+                        end
                     end
                     if child:IsA("BasePart") then
-                        if containsKeyword(child.Name) then found = true break end
+                        kw = findKeyword(child.Name)
+                        if kw then
+                            local prio = getPriority(kw)
+                            if prio < currentPriority then
+                                currentPriority = prio
+                                keywordFound = kw
+                                if currentPriority == 1 then break end
+                            end
+                        end
                     end
                 end
             end
 
-            if not found then
+            -- Prüfe Attribute
+            if currentPriority > 1 then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
-                    if containsKeyword(val) then found = true break end
+                    kw = findKeyword(val)
+                    if kw then
+                        local prio = getPriority(kw)
+                        if prio < currentPriority then
+                            currentPriority = prio
+                            keywordFound = kw
+                            if currentPriority == 1 then break end
+                        end
+                    end
                 end
             end
 
-            if found then
-                return model
+            -- Wenn dieses Modell eine bessere Priorität hat, speichern
+            if currentPriority < bestPriority then
+                bestPriority = currentPriority
+                bestModel = model
+                foundKeyword = keywordFound
+                if bestPriority == 1 then break end -- perfekt, nicht weiter suchen
             end
         end
     end
-    return nil
+
+    if bestModel then
+        return bestModel, foundKeyword
+    else
+        return nil, nil
+    end
 end
 
+-- // ---- HILFSFUNKTION: Part im Modell finden ----
 local function getModelPart(model)
     if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
         return model.PrimaryPart
@@ -205,23 +266,22 @@ local function getModelPart(model)
     return model:FindFirstChildWhichIsA("BasePart")
 end
 
--- // ---- PROMPT FINDEN (NEU: sucht unter "Mesh") ----
+-- // ---- PROMPT FINDEN (unter "Mesh" nach "PickupPrompt") ----
 local function getPrompt(model)
-    -- 1. Suche nach einem Kind mit Namen "Mesh" (egal ob Part, Folder, etc.)
+    -- 1. Suche nach einem Kind mit Namen "Mesh"
     local meshContainer = model:FindFirstChild("Mesh")
     if meshContainer then
-        -- Suche im Container nach einem ProximityPrompt
-        local prompt = meshContainer:FindFirstChildWhichIsA("ProximityPrompt")
+        -- Suche im Container nach einem PickupPrompt
+        local prompt = meshContainer:FindFirstChildWhichIsA("PickupPrompt")
         if prompt then return prompt end
-        prompt = meshContainer:FindFirstChild("ProximityPrompt") -- fallback für benannte Suche
+        prompt = meshContainer:FindFirstChild("PickupPrompt") -- fallback für benannte Suche
         if prompt then return prompt end
     end
 
     -- 2. Fallback: Direkt im Modell suchen (falls der Prompt doch nicht unter "Mesh" liegt)
-    -- Kannst du entfernen, wenn du sicher bist, dass er immer unter "Mesh" ist.
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
+    local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
     if prompt then return prompt end
-    return model:FindFirstChild("ProximityPrompt")
+    return model:FindFirstChild("PickupPrompt")
 end
 
 -- // ---- HAUPT-SCHLEIFE ----
@@ -234,11 +294,11 @@ local function startLoop()
     loopCoroutine = task.spawn(function()
         while not shutdown do
             if running then
-                statusLabel.Text = "🔄 Suche Modell..."
-                local targetModel = findTargetModel()
+                statusLabel.Text = "🔄 Suche bestes Modell..."
+                local targetModel, keyword = findBestModel()
 
                 if targetModel then
-                    statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name
+                    statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name .. " (" .. (keyword or "?") .. ")"
 
                     local part = getModelPart(targetModel)
                     if part then
@@ -252,13 +312,13 @@ local function startLoop()
 
                     local prompt = getPrompt(targetModel)
                     if prompt then
-                        statusLabel.Text = "⌨️ Drücke Prompt (unter 'Mesh')..."
+                        statusLabel.Text = "⌨️ Drücke PickupPrompt (unter 'Mesh')..."
                         prompt:InputHoldBegin()
                         task.wait(0.2)
                         prompt:InputHoldEnd()
                         task.wait(0.3)
                     else
-                        statusLabel.Text = "⚠️ Kein Prompt unter 'Mesh' gefunden!"
+                        statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
                         continue
                     end
@@ -269,7 +329,7 @@ local function startLoop()
 
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
-                    statusLabel.Text = "❌ Kein Modell mit 'OG'/'Secret'/'God' gefunden!"
+                    statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
                 task.wait(LOOP_WAIT)
@@ -302,5 +362,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Der Prompt wird unter 'Mesh' gesucht.")
+print("✅ GUI geladen. Der Prompt wird als 'PickupPrompt' unter 'Mesh' gesucht.")
 statusLabel.Text = "⏸ Gestoppt"
