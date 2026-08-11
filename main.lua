@@ -1,5 +1,5 @@
 --[[
-    Auto Celestial/OG – Delta Executor (fixierte UI)
+    Auto Celestial/OG – Delta Executor (fixierte UI ohne UIShadow)
     - Durchsucht workspace.Bases nach Modellen mit "Celestial" oder "OG"
     - Teleportiert Spieler zum Modell, feuert ProximityPrompt (0.8s), teleportiert zu -150, 6, -597
     - Wiederholt im Loop
@@ -15,7 +15,7 @@ if not fireproximityprompt then
 end
 
 -- ============================
--- UI Erstellung (komplett überarbeitet)
+-- UI Erstellung (ohne UIShadow)
 -- ============================
 local function createUI()
     local screenGui = Instance.new("ScreenGui")
@@ -28,8 +28,8 @@ local function createUI()
     mainFrame.Name = "MainFrame"
     mainFrame.Size = UDim2.new(0, 320, 0, 180)
     mainFrame.Position = UDim2.new(0.5, -160, 0.5, -90)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 40, 60) -- dunkles Blaugrau
-    mainFrame.BackgroundTransparency = 0 -- voll deckend
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
+    mainFrame.BackgroundTransparency = 0
     mainFrame.BorderSizePixel = 0
     mainFrame.ClipsDescendants = true
     mainFrame.Parent = screenGui
@@ -39,13 +39,11 @@ local function createUI()
     corner.CornerRadius = UDim.new(0, 12)
     corner.Parent = mainFrame
 
-    -- Schatten
-    local shadow = Instance.new("UIShadow")
-    shadow.Color = Color3.fromRGB(0, 0, 0)
-    shadow.Offset = Vector2.new(3, 3)
-    shadow.BlurRadius = 10
-    shadow.Transparency = 0.5
-    shadow.Parent = mainFrame
+    -- Optional: dünner Rahmen für bessere Sichtbarkeit (ersetzt Schatten)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(80, 100, 140)
+    stroke.Thickness = 1
+    stroke.Parent = mainFrame
 
     -- Titelzeile (dragbar)
     local titleBar = Instance.new("Frame")
@@ -72,7 +70,7 @@ local function createUI()
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = titleBar
 
-    -- Minimize Button (sichtbar)
+    -- Minimize Button
     local minimizeBtn = Instance.new("TextButton")
     minimizeBtn.Size = UDim2.new(0, 28, 0, 26)
     minimizeBtn.Position = UDim2.new(1, -60, 0, 3)
@@ -89,7 +87,7 @@ local function createUI()
     minCorner.CornerRadius = UDim.new(0, 6)
     minCorner.Parent = minimizeBtn
 
-    -- Close Button (sichtbar)
+    -- Close Button
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, 28, 0, 26)
     closeBtn.Position = UDim2.new(1, -30, 0, 3)
@@ -114,11 +112,11 @@ local function createUI()
     content.BackgroundTransparency = 1
     content.Parent = mainFrame
 
-    -- Toggle Button (groß, auffällig)
+    -- Toggle Button
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Size = UDim2.new(0, 200, 0, 44)
     toggleBtn.Position = UDim2.new(0.5, -100, 0.5, -30)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 220) -- kräftiges Blau
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 220)
     toggleBtn.BackgroundTransparency = 0
     toggleBtn.BorderSizePixel = 0
     toggleBtn.Text = "▶ Start"
@@ -131,7 +129,7 @@ local function createUI()
     toggleCorner.CornerRadius = UDim.new(0, 10)
     toggleCorner.Parent = toggleBtn
 
-    -- Status Label (deutlich sichtbar)
+    -- Status Label
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Size = UDim2.new(1, 0, 0, 30)
     statusLabel.Position = UDim2.new(0, 0, 1, -32)
@@ -184,7 +182,7 @@ local function createUI()
     minimizeBtn.MouseButton1Click:Connect(function()
         minimized = not minimized
         if minimized then
-            mainFrame.Size = UDim2.new(0, 320, 0, 32) -- nur Titelzeile
+            mainFrame.Size = UDim2.new(0, 320, 0, 32)
             content.Visible = false
             minimizeBtn.Text = "□"
         else
@@ -352,7 +350,7 @@ end
 local function startLoop()
     isRunning = true
     toggleBtn.Text = "⏹ Stop"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70) -- rot für Stop
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
     updateStatus("Running...", Color3.fromRGB(100, 255, 100))
 
     task.spawn(function()
