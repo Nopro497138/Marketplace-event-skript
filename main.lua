@@ -1,6 +1,7 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 2.0 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
+local LOOP_WAIT = 0.5 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
+local HOLD_TIME = 1.5 -- Wie lange der PickupPrompt gedrückt wird (Sekunden)
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -15,7 +16,6 @@ local shutdown = false
 local loopCoroutine = nil
 
 -- // ---- HILFSFUNKTION: Erkennen des Keywords mit Priorität ----
--- Gibt zurück: "god", "og" oder "secret" – oder nil, wenn keins.
 local function findKeyword(text)
     local lower = string.lower(text)
     if string.find(lower, "god") then return "god" end
@@ -24,11 +24,10 @@ local function findKeyword(text)
     return nil
 end
 
--- Gibt die Priorität (Zahl) für ein Keyword zurück: 1 = höchste (God/OG), 2 = Secret
 local function getPriority(keyword)
     if keyword == "god" or keyword == "og" then return 1 end
     if keyword == "secret" then return 2 end
-    return 3 -- Fallback (sollte nicht vorkommen)
+    return 3
 end
 
 -- // ---- GUI ERSTELLEN (unverändert) ----
@@ -177,7 +176,7 @@ local function findBestModel()
     end
 
     local bestModel = nil
-    local bestPriority = 3   -- je niedriger, desto besser
+    local bestPriority = 3
     local foundKeyword = nil
 
     for _, model in ipairs(folder:GetChildren()) do
@@ -185,7 +184,6 @@ local function findBestModel()
             local currentPriority = 3
             local keywordFound = nil
 
-            -- Prüfe Modell-Name
             local kw = findKeyword(model.Name)
             if kw then
                 local prio = getPriority(kw)
@@ -195,8 +193,7 @@ local function findBestModel()
                 end
             end
 
-            -- Prüfe alle Nachkommen (Value-Objekte, Part-Namen)
-            if currentPriority > 1 then -- nur weitersuchen, wenn noch nicht Prio 1 gefunden
+            if currentPriority > 1 then
                 for _, child in ipairs(model:GetDescendants()) do
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
                        child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
@@ -225,7 +222,6 @@ local function findBestModel()
                 end
             end
 
-            -- Prüfe Attribute
             if currentPriority > 1 then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
@@ -241,12 +237,11 @@ local function findBestModel()
                 end
             end
 
-            -- Wenn dieses Modell eine bessere Priorität hat, speichern
             if currentPriority < bestPriority then
                 bestPriority = currentPriority
                 bestModel = model
                 foundKeyword = keywordFound
-                if bestPriority == 1 then break end -- perfekt, nicht weiter suchen
+                if bestPriority == 1 then break end
             end
         end
     end
@@ -268,17 +263,13 @@ end
 
 -- // ---- PROMPT FINDEN (unter "Mesh" nach "PickupPrompt") ----
 local function getPrompt(model)
-    -- 1. Suche nach einem Kind mit Namen "Mesh"
     local meshContainer = model:FindFirstChild("Mesh")
     if meshContainer then
-        -- Suche im Container nach einem PickupPrompt
         local prompt = meshContainer:FindFirstChildWhichIsA("PickupPrompt")
         if prompt then return prompt end
-        prompt = meshContainer:FindFirstChild("PickupPrompt") -- fallback für benannte Suche
+        prompt = meshContainer:FindFirstChild("PickupPrompt")
         if prompt then return prompt end
     end
-
-    -- 2. Fallback: Direkt im Modell suchen (falls der Prompt doch nicht unter "Mesh" liegt)
     local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
     if prompt then return prompt end
     return model:FindFirstChild("PickupPrompt")
@@ -312,11 +303,11 @@ local function startLoop()
 
                     local prompt = getPrompt(targetModel)
                     if prompt then
-                        statusLabel.Text = "⌨️ Drücke PickupPrompt (unter 'Mesh')..."
+                        statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
                         prompt:InputHoldBegin()
-                        task.wait(0.2)
+                        task.wait(HOLD_TIME)          -- 1,5 Sekunden gedrückt halten
                         prompt:InputHoldEnd()
-                        task.wait(0.3)
+                        task.wait(0.3)                 -- kurze Pause nach dem Loslassen
                     else
                         statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
@@ -332,7 +323,7 @@ local function startLoop()
                     statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
-                task.wait(LOOP_WAIT)
+                task.wait(LOOP_WAIT)   -- nur 0,5 Sekunden Pause
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
@@ -362,5 +353,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Der Prompt wird als 'PickupPrompt' unter 'Mesh' gesucht.")
+print("✅ GUI geladen. PickupPrompt wird " .. HOLD_TIME .. "s gedrückt.")
 statusLabel.Text = "⏸ Gestoppt"
