@@ -1,8 +1,8 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 0.5 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
-local HOLD_TIME = 1.5 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
-local FIRE_INTERVAL = 0.1 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
+local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs (so schnell wie möglich)
+local HOLD_TIME = 0.8 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
+local FIRE_INTERVAL = 0.05 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -276,6 +276,22 @@ local function getPrompt(model)
     return model:FindFirstChild("PickupPrompt")
 end
 
+-- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins aus dem Charakter ----
+local function unequipAll()
+    local char = player.Character
+    if not char then return end
+    for _, obj in ipairs(char:GetChildren()) do
+        if obj:IsA("Tool") or obj:IsA("HopperBin") then
+            obj:Destroy() -- oder obj.Parent = nil, je nachdem was stabiler ist
+        end
+    end
+    -- Optional: Auch den ActiveTool-Status zurücksetzen (falls vorhanden)
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:UnequipTools() -- Native Methode, um alle Tools abzulegen
+    end
+end
+
 -- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
     if loopCoroutine then
@@ -295,7 +311,7 @@ local function startLoop()
                     local part = getModelPart(targetModel)
                     if part then
                         hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-                        task.wait(0.15)
+                        task.wait(0.1)
                     else
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
                         task.wait(LOOP_WAIT)
@@ -306,26 +322,23 @@ local function startLoop()
                     if prompt then
                         statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
                         
-                        -- // ---- NEUE METHODE: Prompt alle 0,1s feuern (statt InputHold) ----
+                        -- Prompt wiederholt feuern (simuliert Halten)
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
                             pcall(function()
-                                -- Versuche zuerst fireproximityprompt (für Delta und die meisten Exploits)
                                 if fireproximityprompt then
                                     fireproximityprompt(prompt)
                                 elseif firepickupprompt then
                                     firepickupprompt(prompt)
                                 else
-                                    -- Fallback: InputHold (falls nichts anderes geht)
                                     prompt:InputHoldBegin()
-                                    task.wait(0.1)
+                                    task.wait(0.05)
                                     prompt:InputHoldEnd()
                                 end
                             end)
                             task.wait(FIRE_INTERVAL)
                         end
-                        
-                        task.wait(0.3) -- kurze Pause nach dem "Loslassen"
+                        task.wait(0.1)
                     else
                         statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
@@ -334,14 +347,19 @@ local function startLoop()
 
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
-                    task.wait(0.2)
+                    task.wait(0.1)
+
+                    -- // ---- ALLES UNEQUIPPEN ----
+                    statusLabel.Text = "🧹 Leere Inventar..."
+                    unequipAll()
+                    task.wait(0.05)
 
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
                     statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
-                task.wait(LOOP_WAIT)
+                task.wait(LOOP_WAIT) -- minimale Pause
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
@@ -371,5 +389,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. PickupPrompt wird durch wiederholtes Feuern für " .. HOLD_TIME .. "s simuliert.")
+print("✅ GUI geladen. PickupPrompt wird für " .. HOLD_TIME .. "s simuliert, Inventar wird nach jedem Run geleert.")
 statusLabel.Text = "⏸ Gestoppt"
