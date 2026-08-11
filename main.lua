@@ -31,7 +31,7 @@ local function getPriority(keyword)
     return 3
 end
 
--- // ---- GUI ERSTELLEN ----
+-- // ---- GUI ERSTELLEN (unverändert) ----
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoFarmGUI"
 screenGui.ResetOnSpawn = false
@@ -262,13 +262,43 @@ local function getModelPart(model)
     return model:FindFirstChildWhichIsA("BasePart")
 end
 
--- // ---- PROMPT FINDEN (überall im Modell, nicht nur unter "Mesh") ----
+-- // ---- ULTRA-ROBUSTE PROMPT-SUCHE (durchsucht alles) ----
 local function getPrompt(model)
-    -- Durchsuche das gesamte Modell nach einem PickupPrompt
+    -- 1. Direkte Kinder nach PickupPrompt durchsuchen (schnell)
     local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
     if prompt then return prompt end
-    -- Fallback: Suche nach Namen (falls der Prompt nicht als IsA erkannt wird)
-    return model:FindFirstChild("PickupPrompt")
+
+    -- 2. Nach Namen "PickupPrompt" suchen (falls IsA nicht klappt)
+    prompt = model:FindFirstChild("PickupPrompt")
+    if prompt then return prompt end
+
+    -- 3. Rekursive Suche über ALLE Nachkommen (tiefenunabhängig)
+    for _, child in ipairs(model:GetDescendants()) do
+        if child:IsA("PickupPrompt") then
+            return child
+        end
+        if child.Name == "PickupPrompt" then
+            return child
+        end
+    end
+
+    -- 4. Fallback: ProximityPrompt (falls das Spiel es anders nennt)
+    prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
+    if prompt then return prompt end
+    prompt = model:FindFirstChild("ProximityPrompt")
+    if prompt then return prompt end
+
+    for _, child in ipairs(model:GetDescendants()) do
+        if child:IsA("ProximityPrompt") then
+            return child
+        end
+        if child.Name == "ProximityPrompt" then
+            return child
+        end
+    end
+
+    -- 5. Nichts gefunden
+    return nil
 end
 
 -- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins ----
@@ -327,15 +357,17 @@ local function startLoop()
 
                     local prompt = getPrompt(targetModel)
                     if prompt then
-                        statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
+                        statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
                             pcall(function()
+                                -- Versuche verschiedene Methoden zum Auslösen
                                 if fireproximityprompt then
                                     fireproximityprompt(prompt)
                                 elseif firepickupprompt then
                                     firepickupprompt(prompt)
                                 else
+                                    -- Fallback: InputHold simulieren
                                     prompt:InputHoldBegin()
                                     task.wait(0.05)
                                     prompt:InputHoldEnd()
@@ -345,7 +377,7 @@ local function startLoop()
                         end
                         task.wait(0.1)
                     else
-                        statusLabel.Text = "⚠️ Kein PickupPrompt im Modell gefunden!"
+                        statusLabel.Text = "❌ Kein Prompt im Modell gefunden!"
                         task.wait(LOOP_WAIT)
                         continue
                     end
@@ -399,5 +431,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. PickupPrompt wird im gesamten Modell gesucht, für " .. HOLD_TIME .. "s gehalten, Inventar geleert und Slot 1 ausgerüstet.")
+print("✅ GUI geladen. Die Prompt-Suche ist jetzt extrem robust (durchsucht alles).")
 statusLabel.Text = "⏸ Gestoppt"
