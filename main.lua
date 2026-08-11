@@ -166,7 +166,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE MIT PRIORITÄT (prüft ALLE Namen & Werte) ----
+-- // ---- MODELL-SUCHE MIT PRIORITÄT (NUR MIT KEYWORDS "God", "OG", "Secret") ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
@@ -175,7 +175,7 @@ local function findBestModel()
     end
 
     local bestModel = nil
-    local bestPriority = 3
+    local bestPriority = 3   -- 3 = kein Keyword gefunden (wird ignoriert)
     local foundKeyword = nil
 
     for _, model in ipairs(folder:GetChildren()) do
@@ -194,7 +194,6 @@ local function findBestModel()
 
             if currentPriority > 1 then
                 for _, child in ipairs(model:GetDescendants()) do
-                    -- Namen aller Kinder prüfen
                     local kwChild = findKeyword(child.Name)
                     if kwChild then
                         local prio = getPriority(kwChild)
@@ -204,7 +203,6 @@ local function findBestModel()
                             if currentPriority == 1 then break end
                         end
                     end
-                    -- Werte von Value-Objekten
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
                        child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
                         local val = tostring(child.Value)
@@ -236,6 +234,7 @@ local function findBestModel()
                 end
             end
 
+            -- NUR wenn ein Keyword gefunden wurde (Priority < 3), wird das Modell in Betracht gezogen
             if currentPriority < bestPriority then
                 bestPriority = currentPriority
                 bestModel = model
@@ -245,7 +244,8 @@ local function findBestModel()
         end
     end
 
-    if bestModel then
+    -- Nur zurückgeben, wenn ein Keyword gefunden wurde (bestPriority < 3)
+    if bestModel and bestPriority < 3 then
         return bestModel, foundKeyword
     else
         return nil, nil
@@ -284,7 +284,6 @@ local function getPrompt(model)
         end
     end
 
-    -- Fallback ProximityPrompt
     prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
     if prompt then return prompt end
     prompt = model:FindFirstChild("ProximityPrompt")
@@ -297,32 +296,6 @@ local function getPrompt(model)
     return nil
 end
 
--- // ---- UNEQUIP + EQUIP ----
-local function unequipAll(char)
-    if not char then return end
-    for _, obj in ipairs(char:GetChildren()) do
-        if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy()
-        end
-    end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid:UnequipTools()
-    end
-end
-
-local function equipFirstSlot()
-    local backpack = player:FindFirstChild("Backpack")
-    if not backpack then return end
-    local tools = backpack:GetChildren()
-    for _, tool in ipairs(tools) do
-        if tool:IsA("Tool") then
-            tool:Equip()
-            return
-        end
-    end
-end
-
 -- // ---- HAUPT-SCHLEIFE (endlos, mit Fehlerabfang) ----
 local function startLoop()
     if loopCoroutine then
@@ -332,16 +305,13 @@ local function startLoop()
 
     loopCoroutine = task.spawn(function()
         while not shutdown do
-            -- Schleife läuft nur, wenn running == true
             if running then
-                -- Fehler abfangen, damit die Schleife nicht abbricht
                 local success, err = pcall(function()
-                    -- Aktuellen Charakter und RootPart holen (bei jedem Durchlauf neu)
                     local character = player.Character
                     if not character then
                         statusLabel.Text = "⏳ Warte auf Charakter..."
                         task.wait(0.5)
-                        return -- springt aus pcall, aber Schleife läuft weiter
+                        return
                     end
                     local hrp = character:FindFirstChild("HumanoidRootPart")
                     if not hrp then
@@ -350,15 +320,13 @@ local function startLoop()
                         return
                     end
 
-                    -- 1. Modell suchen
                     local targetModel, keyword = findBestModel()
                     if not targetModel then
-                        statusLabel.Text = "❌ Kein passendes Modell gefunden!"
+                        statusLabel.Text = "❌ Kein Modell mit 'God', 'OG' oder 'Secret' gefunden!"
                         task.wait(LOOP_WAIT)
                         return
                     end
 
-                    -- 2. Part finden und teleportieren
                     local part = getModelPart(targetModel)
                     if not part then
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
@@ -368,7 +336,6 @@ local function startLoop()
                     hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
                     task.wait(0.1)
 
-                    -- 3. Prompt finden und halten
                     local prompt = getPrompt(targetModel)
                     if not prompt then
                         statusLabel.Text = "❌ Kein Prompt im Modell!"
@@ -394,26 +361,15 @@ local function startLoop()
                     end
                     task.wait(0.1)
 
-                    -- 4. Teleport zum Ziel
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
                     task.wait(0.1)
 
-                    -- 5. Unequip
-                    statusLabel.Text = "🧹 Leere Inventar..."
-                    unequipAll(character)
-                    task.wait(0.05)
-
-                    -- 6. Slot 1 ausrüsten
-                    statusLabel.Text = "🔧 Rüste Slot 1 aus..."
-                    equipFirstSlot()
-                    task.wait(0.05)
-
+                    -- Entfernt: Unequip und Equip von Slot 1
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 end)
 
                 if not success then
-                    -- Fehler aufgetreten, kurz warten und weitermachen
                     warn("Fehler im Hauptloop:", err)
                     statusLabel.Text = "⚠️ Fehler – neuer Versuch..."
                     task.wait(0.5)
@@ -422,7 +378,6 @@ local function startLoop()
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
             end
-            -- Kurze Pause, um CPU zu schonen
             task.wait(0.01)
         end
     end)
