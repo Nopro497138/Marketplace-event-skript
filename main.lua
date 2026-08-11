@@ -1,8 +1,8 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs
+local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs (so schnell wie möglich)
 local HOLD_TIME = 0.8 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
-local FIRE_INTERVAL = 0.05 -- Intervall für wiederholtes Feuern des Prompts
+local FIRE_INTERVAL = 0.05 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -31,7 +31,7 @@ local function getPriority(keyword)
     return 3
 end
 
--- // ---- GUI ERSTELLEN (unverändert) ----
+-- // ---- GUI ERSTELLEN ----
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoFarmGUI"
 screenGui.ResetOnSpawn = false
@@ -262,70 +262,33 @@ local function getModelPart(model)
     return model:FindFirstChildWhichIsA("BasePart")
 end
 
--- // ---- ULTRA-ROBUSTE PROMPT-SUCHE (durchsucht alles) ----
+-- // ---- PROMPT FINDEN (unter "Mesh" nach "PickupPrompt") ----
 local function getPrompt(model)
-    -- 1. Direkte Kinder nach PickupPrompt durchsuchen (schnell)
+    local meshContainer = model:FindFirstChild("Mesh")
+    if meshContainer then
+        local prompt = meshContainer:FindFirstChildWhichIsA("PickupPrompt")
+        if prompt then return prompt end
+        prompt = meshContainer:FindFirstChild("PickupPrompt")
+        if prompt then return prompt end
+    end
     local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
     if prompt then return prompt end
-
-    -- 2. Nach Namen "PickupPrompt" suchen (falls IsA nicht klappt)
-    prompt = model:FindFirstChild("PickupPrompt")
-    if prompt then return prompt end
-
-    -- 3. Rekursive Suche über ALLE Nachkommen (tiefenunabhängig)
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("PickupPrompt") then
-            return child
-        end
-        if child.Name == "PickupPrompt" then
-            return child
-        end
-    end
-
-    -- 4. Fallback: ProximityPrompt (falls das Spiel es anders nennt)
-    prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
-    if prompt then return prompt end
-    prompt = model:FindFirstChild("ProximityPrompt")
-    if prompt then return prompt end
-
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("ProximityPrompt") then
-            return child
-        end
-        if child.Name == "ProximityPrompt" then
-            return child
-        end
-    end
-
-    -- 5. Nichts gefunden
-    return nil
+    return model:FindFirstChild("PickupPrompt")
 end
 
--- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins ----
+-- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins aus dem Charakter ----
 local function unequipAll()
     local char = player.Character
     if not char then return end
     for _, obj in ipairs(char:GetChildren()) do
         if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy()
+            obj:Destroy() -- oder obj.Parent = nil, je nachdem was stabiler ist
         end
     end
+    -- Optional: Auch den ActiveTool-Status zurücksetzen (falls vorhanden)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        humanoid:UnequipTools()
-    end
-end
-
--- // ---- EQUIP-FUNKTION: Rüstet das erste Tool aus dem Backpack aus (Slot 1) ----
-local function equipFirstSlot()
-    local backpack = player:FindFirstChild("Backpack")
-    if not backpack then return end
-    local tools = backpack:GetChildren()
-    for _, tool in ipairs(tools) do
-        if tool:IsA("Tool") then
-            tool:Equip()
-            return
-        end
+        humanoid:UnequipTools() -- Native Methode, um alle Tools abzulegen
     end
 end
 
@@ -357,17 +320,17 @@ local function startLoop()
 
                     local prompt = getPrompt(targetModel)
                     if prompt then
-                        statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
+                        statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
+                        
+                        -- Prompt wiederholt feuern (simuliert Halten)
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
                             pcall(function()
-                                -- Versuche verschiedene Methoden zum Auslösen
                                 if fireproximityprompt then
                                     fireproximityprompt(prompt)
                                 elseif firepickupprompt then
                                     firepickupprompt(prompt)
                                 else
-                                    -- Fallback: InputHold simulieren
                                     prompt:InputHoldBegin()
                                     task.wait(0.05)
                                     prompt:InputHoldEnd()
@@ -377,7 +340,7 @@ local function startLoop()
                         end
                         task.wait(0.1)
                     else
-                        statusLabel.Text = "❌ Kein Prompt im Modell gefunden!"
+                        statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
                         continue
                     end
@@ -391,17 +354,12 @@ local function startLoop()
                     unequipAll()
                     task.wait(0.05)
 
-                    -- // ---- SLOT 1 AUSRÜSTEN ----
-                    statusLabel.Text = "🔧 Rüste Slot 1 aus..."
-                    equipFirstSlot()
-                    task.wait(0.05)
-
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
                     statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
-                task.wait(LOOP_WAIT)
+                task.wait(LOOP_WAIT) -- minimale Pause
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
@@ -431,5 +389,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Die Prompt-Suche ist jetzt extrem robust (durchsucht alles).")
+print("✅ GUI geladen. PickupPrompt wird für " .. HOLD_TIME .. "s simuliert, Inventar wird nach jedem Run geleert.")
 statusLabel.Text = "⏸ Gestoppt"
