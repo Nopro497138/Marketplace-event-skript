@@ -1,7 +1,8 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 1 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
-local HOLD_TIME = 10 -- Wie lange der PickupPrompt gedrückt wird (Sekunden)
+local LOOP_WAIT = 0.5 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
+local HOLD_TIME = 1.5 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
+local FIRE_INTERVAL = 0.1 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -30,7 +31,7 @@ local function getPriority(keyword)
     return 3
 end
 
--- // ---- GUI ERSTELLEN (unverändert) ----
+-- // ---- GUI ERSTELLEN ----
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoFarmGUI"
 screenGui.ResetOnSpawn = false
@@ -304,10 +305,27 @@ local function startLoop()
                     local prompt = getPrompt(targetModel)
                     if prompt then
                         statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
-                        prompt:InputHoldBegin()
-                        task.wait(HOLD_TIME)          -- 1,5 Sekunden gedrückt halten
-                        prompt:InputHoldEnd()
-                        task.wait(0.3)                 -- kurze Pause nach dem Loslassen
+                        
+                        -- // ---- NEUE METHODE: Prompt alle 0,1s feuern (statt InputHold) ----
+                        local startTime = tick()
+                        while tick() - startTime < HOLD_TIME do
+                            pcall(function()
+                                -- Versuche zuerst fireproximityprompt (für Delta und die meisten Exploits)
+                                if fireproximityprompt then
+                                    fireproximityprompt(prompt)
+                                elseif firepickupprompt then
+                                    firepickupprompt(prompt)
+                                else
+                                    -- Fallback: InputHold (falls nichts anderes geht)
+                                    prompt:InputHoldBegin()
+                                    task.wait(0.1)
+                                    prompt:InputHoldEnd()
+                                end
+                            end)
+                            task.wait(FIRE_INTERVAL)
+                        end
+                        
+                        task.wait(0.3) -- kurze Pause nach dem "Loslassen"
                     else
                         statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
@@ -323,7 +341,7 @@ local function startLoop()
                     statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
-                task.wait(LOOP_WAIT)   -- nur 0,5 Sekunden Pause
+                task.wait(LOOP_WAIT)
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
@@ -353,5 +371,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. PickupPrompt wird " .. HOLD_TIME .. "s gedrückt.")
+print("✅ GUI geladen. PickupPrompt wird durch wiederholtes Feuern für " .. HOLD_TIME .. "s simuliert.")
 statusLabel.Text = "⏸ Gestoppt"
