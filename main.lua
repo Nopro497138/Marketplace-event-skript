@@ -1,157 +1,63 @@
---[[
-  Simple Roll-Spammer mit Toggle-GUI
-  Funktioniert mit dem angegebenen RemoteEvent-Pfad.
-]]
-
--- Service holen
+-- // Variablen für die Remote-Events
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local OnCast = Remotes:WaitForChild("OnCast")         -- RemoteFunction
+local FinishRun = Remotes:WaitForChild("FinishRun")   -- RemoteFunction
 
--- Pfad zum RemoteEvent (einmalig cachen)
-local RemoteEvent
-local success, err = pcall(function()
-    RemoteEvent = ReplicatedStorage:WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("leifstout_networker@0.3.1")
-        :WaitForChild("networker")
-        :WaitForChild("_remotes")
-        :WaitForChild("Roll")
-        :WaitForChild("RemoteEvent")
-end)
+-- // Einstellungen
+local loopInterval = 0.2      -- Zeitabstand zwischen den Wiederholungen (in Sekunden)
+local betweenDelay = 0.05     -- Cooldown zwischen OnCast und FinishRun (in Sekunden)
 
-if not success or not RemoteEvent then
-    warn("RemoteEvent nicht gefunden! Bist du im richtigen Spiel?")
-    return
-end
+-- // Status der Schleife
+local running = false
 
--- Status-Variablen
-local isRunning = false
-local loopConnection = nil
-
--- Funktion, die das Event feuert
-local function fireRoll()
-    -- args wie gewünscht
-    local args = { "Roll" }
-    -- FireServer mit allen Argumenten
-    RemoteEvent:FireServer(unpack(args))
-end
-
--- Hauptschleife (läuft in einer Coroutine)
-local function startLoop()
-    if loopConnection then return end  -- schon aktiv
-    isRunning = true
-    loopConnection = game:GetService("RunService").Heartbeat:Connect(function()
-        -- Nur feuern, wenn isRunning true ist
-        if isRunning then
-            fireRoll()
-        end
-    end)
-    -- Zusätzlich alle 0.1 Sekunden via task.wait (sicherer)
-    -- Aber Heartbeat feuert ca. 60x pro Sekunde, das ist zu oft.
-    -- Wir verwenden stattdessen eine while-Schleife mit task.wait(0.1)
-    -- Besser: eigene while-Schleife in einer Coroutine
-    -- Wir beenden die Heartbeat-Verbindung und nutzen eine eigene Schleife
-    loopConnection:Disconnect()
-    loopConnection = nil
-
-    -- Starte eine neue while-Schleife
-    loopConnection = coroutine.create(function()
-        while isRunning do
-            fireRoll()
-            task.wait(0.1)
-        end
-    end)
-    coroutine.resume(loopConnection)
-end
-
-local function stopLoop()
-    isRunning = false
-    -- Coroutine wird sich selbst beenden, da die while-Bedingung false wird
-    -- Wir müssen den Coroutine-Referenz zurücksetzen
-    if loopConnection then
-        loopConnection = nil
-    end
-end
-
--- GUI erstellen (ScreenGui)
+-- // GUI erstellen
+local player = game.Players.LocalPlayer
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "RollSpammerGUI"
-screenGui.ResetOnSpawn = false  -- bleibt beim Respawn erhalten
-screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- Haupt-Frame (klein, transparent)
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 180, 0, 60)
-frame.Position = UDim2.new(0.5, -90, 0.5, -30)
-frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-frame.BackgroundTransparency = 0.2
-frame.BorderSizePixel = 0
-frame.Active = true
-frame.Draggable = true  -- zum Verschieben
-frame.Parent = screenGui
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0, 200, 0, 50)
+button.Position = UDim2.new(0.5, -100, 0.5, -25)
+button.Text = "Start"
+button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Parent = screenGui
 
--- Abgerundete Ecken (optional)
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
-corner.Parent = frame
+-- // Toggle-Funktion
+local function toggle()
+    running = not running
+    button.Text = running and "Stop" or "Start"
+    button.BackgroundColor3 = running and Color3.fromRGB(170, 0, 0) or Color3.fromRGB(0, 170, 0)
 
--- Beschriftung (Text oben)
-local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, 0, 0.4, 0)
-label.Position = UDim2.new(0, 0, 0, 0)
-label.BackgroundTransparency = 1
-label.Text = "Roll Spammer"
-label.TextColor3 = Color3.fromRGB(255, 255, 255)
-label.TextScaled = true
-label.Font = Enum.Font.GothamBold
-label.Parent = frame
+    if running then
+        -- Starte die Schleife in einer separaten Koroutine
+        task.spawn(function()
+            while running do
+                -- 1. OnCast mit dem Float-Wert
+                local success, result = pcall(function()
+                    OnCast:InvokeServer(0.9000930618494749)
+                end)
+                if not success then
+                    warn("Fehler bei OnCast:", result)
+                end
 
--- Toggle-Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0.8, 0, 0.4, 0)
-toggleButton.Position = UDim2.new(0.1, 0, 0.5, 0)
-toggleButton.BackgroundColor3 = Color3.fromRGB(60, 160, 60)
-toggleButton.Text = "Start"
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.TextScaled = true
-toggleButton.Font = Enum.Font.GothamBold
-toggleButton.BorderSizePixel = 0
-toggleButton.Parent = frame
+                -- 2. Kurze Pause
+                task.wait(betweenDelay)
 
--- Abrundung für Button
-local btnCorner = Instance.new("UICorner")
-btnCorner.CornerRadius = UDim.new(0, 6)
-btnCorner.Parent = toggleButton
+                -- 3. FinishRun mit true
+                local success2, result2 = pcall(function()
+                    FinishRun:InvokeServer(true)
+                end)
+                if not success2 then
+                    warn("Fehler bei FinishRun:", result2)
+                end
 
--- Button-Klick-Funktion
-toggleButton.MouseButton1Click:Connect(function()
-    if isRunning then
-        -- Stoppen
-        stopLoop()
-        toggleButton.Text = "Start"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(60, 160, 60)
-    else
-        -- Starten
-        startLoop()
-        toggleButton.Text = "Stopp"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+                -- 4. Warten bis zur nächsten Runde (Gesamtzeit = loopInterval)
+                task.wait(loopInterval - betweenDelay)
+            end
+        end)
     end
-end)
+end
 
--- Sicherstellen, dass beim Beenden des Spiels die Schleife aufhört
-LocalPlayer.AncestryChanged:Connect(function()
-    if not LocalPlayer.Parent then
-        stopLoop()
-    end
-end)
-
--- Optional: Tastenkürzel (z.B. R) zum Togglen
-game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.R then
-        toggleButton:Click()
-    end
-end)
-
-print("Roll-Spammer geladen. GUI erscheint in der Mitte. Drücke 'R' oder klicke den Button zum Togglen.")
+button.MouseButton1Click:Connect(toggle)
