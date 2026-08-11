@@ -1,217 +1,22 @@
---[[
-    Auto Celestial/OG – Delta Executor (fixierte UI ohne UIShadow)
-    - Durchsucht workspace.Bases nach Modellen mit "Celestial" oder "OG"
-    - Teleportiert Spieler zum Modell, feuert ProximityPrompt (0.8s), teleportiert zu -150, 6, -597
-    - Wiederholt im Loop
-    - GUI mit sichtbaren Buttons: Toggle, Minimize, Close, Drag
-]]
+-- // ---- EINSTELLUNGEN ----
+local TARGET_COORDS = CFrame.new(-150, 6, -597)
+local LOOP_WAIT = 0.05
+local HOLD_TIME = 0.8
+local FIRE_INTERVAL = 0.05
 
+-- // ---- SERVICE ----
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
 
-if not fireproximityprompt then
-    warn("⚠️  fireproximityprompt nicht gefunden – bitte Delta Executor verwenden!")
-end
+-- // ---- STATUS ----
+local running = false
+local shutdown = false
+local loopCoroutine = nil
 
--- ============================
--- UI Erstellung (ohne UIShadow)
--- ============================
-local function createUI()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "AutoCelestialOG"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-    -- Hauptframe (undurchsichtig)
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 320, 0, 180)
-    mainFrame.Position = UDim2.new(0.5, -160, 0.5, -90)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-    mainFrame.BackgroundTransparency = 0
-    mainFrame.BorderSizePixel = 0
-    mainFrame.ClipsDescendants = true
-    mainFrame.Parent = screenGui
-
-    -- Abrundung
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = mainFrame
-
-    -- Optional: dünner Rahmen für bessere Sichtbarkeit (ersetzt Schatten)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(80, 100, 140)
-    stroke.Thickness = 1
-    stroke.Parent = mainFrame
-
-    -- Titelzeile (dragbar)
-    local titleBar = Instance.new("Frame")
-    titleBar.Name = "TitleBar"
-    titleBar.Size = UDim2.new(1, 0, 0, 32)
-    titleBar.BackgroundColor3 = Color3.fromRGB(50, 65, 90)
-    titleBar.BackgroundTransparency = 0
-    titleBar.BorderSizePixel = 0
-    titleBar.Parent = mainFrame
-
-    local titleCorner = Instance.new("UICorner")
-    titleCorner.CornerRadius = UDim.new(0, 12)
-    titleCorner.Parent = titleBar
-
-    -- Titeltext
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(1, -70, 1, 0)
-    titleLabel.Position = UDim2.new(0, 8, 0, 0)
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "⚡ Auto Celestial / OG"
-    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    titleLabel.TextSize = 16
-    titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.Parent = titleBar
-
-    -- Minimize Button
-    local minimizeBtn = Instance.new("TextButton")
-    minimizeBtn.Size = UDim2.new(0, 28, 0, 26)
-    minimizeBtn.Position = UDim2.new(1, -60, 0, 3)
-    minimizeBtn.BackgroundColor3 = Color3.fromRGB(70, 85, 110)
-    minimizeBtn.BackgroundTransparency = 0
-    minimizeBtn.BorderSizePixel = 0
-    minimizeBtn.Text = "─"
-    minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    minimizeBtn.TextSize = 20
-    minimizeBtn.Font = Enum.Font.GothamBold
-    minimizeBtn.Parent = titleBar
-
-    local minCorner = Instance.new("UICorner")
-    minCorner.CornerRadius = UDim.new(0, 6)
-    minCorner.Parent = minimizeBtn
-
-    -- Close Button
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(0, 28, 0, 26)
-    closeBtn.Position = UDim2.new(1, -30, 0, 3)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-    closeBtn.BackgroundTransparency = 0
-    closeBtn.BorderSizePixel = 0
-    closeBtn.Text = "✕"
-    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    closeBtn.TextSize = 18
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.Parent = titleBar
-
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 6)
-    closeCorner.Parent = closeBtn
-
-    -- Content (unterhalb der TitleBar)
-    local content = Instance.new("Frame")
-    content.Name = "Content"
-    content.Size = UDim2.new(1, 0, 1, -32)
-    content.Position = UDim2.new(0, 0, 0, 32)
-    content.BackgroundTransparency = 1
-    content.Parent = mainFrame
-
-    -- Toggle Button
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 200, 0, 44)
-    toggleBtn.Position = UDim2.new(0.5, -100, 0.5, -30)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 220)
-    toggleBtn.BackgroundTransparency = 0
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.Text = "▶ Start"
-    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleBtn.TextSize = 20
-    toggleBtn.Font = Enum.Font.GothamSemibold
-    toggleBtn.Parent = content
-
-    local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(0, 10)
-    toggleCorner.Parent = toggleBtn
-
-    -- Status Label
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0, 30)
-    statusLabel.Position = UDim2.new(0, 0, 1, -32)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "Status: Idle"
-    statusLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-    statusLabel.TextSize = 15
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Parent = content
-
-    -- Drag-Funktion
-    local dragging = false
-    local dragInput, dragStart, startPos
-
-    local function update(input)
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
-                                       startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-
-    titleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = mainFrame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    titleBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            update(input)
-        end
-    end)
-
-    -- Minimize / Maximize
-    local minimized = false
-    local originalSize = mainFrame.Size
-    minimizeBtn.MouseButton1Click:Connect(function()
-        minimized = not minimized
-        if minimized then
-            mainFrame.Size = UDim2.new(0, 320, 0, 32)
-            content.Visible = false
-            minimizeBtn.Text = "□"
-        else
-            mainFrame.Size = originalSize
-            content.Visible = true
-            minimizeBtn.Text = "─"
-        end
-    end)
-
-    -- Close
-    closeBtn.MouseButton1Click:Connect(function()
-        screenGui:Destroy()
-        isRunning = false
-    end)
-
-    return {
-        ScreenGui = screenGui,
-        MainFrame = mainFrame,
-        ToggleBtn = toggleBtn,
-        StatusLabel = statusLabel,
-        Content = content,
-        MinimizeBtn = minimizeBtn,
-        CloseBtn = closeBtn
-    }
-end
-
--- ============================
--- Hilfsfunktionen (unverändert)
--- ============================
+-- // ---- HILFSFUNKTIONEN (Text-Suche) ----
 local function textContains(instance, searchText)
     if not instance then return false end
     if instance.Name and string.find(instance.Name, searchText, 1, true) then
@@ -271,118 +76,246 @@ local function getModelPosition(model)
     return nil
 end
 
--- ============================
--- Hauptlogik
--- ============================
-local ui = createUI()
-local toggleBtn = ui.ToggleBtn
-local statusLabel = ui.StatusLabel
-local isRunning = false
+-- // ---- GUI ERSTELLEN (exakt wie vorgegeben, nur Text angepasst) ----
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoFarmGUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
-local function updateStatus(text, color)
-    statusLabel.Text = "Status: " .. text
-    statusLabel.TextColor3 = color or Color3.fromRGB(220, 220, 220)
-end
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 280, 0, 160)
+mainFrame.Position = UDim2.new(0.5, -140, 0.5, -80)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+mainFrame.BackgroundTransparency = 0.15
+mainFrame.BorderSizePixel = 2
+mainFrame.BorderColor3 = Color3.fromRGB(80, 80, 120)
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
 
-local function executeCycle()
-    local bases = workspace:FindFirstChild("Bases")
-    if not bases then
-        warn("❌ workspace.Bases nicht gefunden!")
-        return false
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 30)
+titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
+titleBar.BackgroundTransparency = 0.3
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, -70, 1, 0)
+titleText.Position = UDim2.new(0, 5, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "⚡ Auto Celestial / OG"
+titleText.TextColor3 = Color3.new(1, 1, 1)
+titleText.TextSize = 14
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Font = Enum.Font.GothamBold
+titleText.Parent = titleBar
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 30, 1, -4)
+minBtn.Position = UDim2.new(1, -65, 0, 2)
+minBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+minBtn.Text = "_"
+minBtn.TextColor3 = Color3.new(1, 1, 1)
+minBtn.TextSize = 20
+minBtn.Font = Enum.Font.GothamBold
+minBtn.BorderSizePixel = 0
+minBtn.Parent = titleBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 1, -4)
+closeBtn.Position = UDim2.new(1, -32, 0, 2)
+closeBtn.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.BorderSizePixel = 0
+closeBtn.Parent = titleBar
+
+local contentFrame = Instance.new("Frame")
+contentFrame.Size = UDim2.new(1, 0, 1, -30)
+contentFrame.Position = UDim2.new(0, 0, 0, 30)
+contentFrame.BackgroundTransparency = 1
+contentFrame.Parent = mainFrame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 25)
+statusLabel.Position = UDim2.new(0, 10, 0, 15)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "⏸ Gestoppt"
+statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+statusLabel.TextSize = 14
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = contentFrame
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 120, 0, 40)
+toggleBtn.Position = UDim2.new(0.5, -60, 0, 70)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+toggleBtn.Text = "▶ Start"
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.TextSize = 16
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Parent = contentFrame
+
+-- // ---- DRAG ----
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+titleBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- // ---- MINIMIEREN ----
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    if minimized then
+        contentFrame.Visible = false
+        mainFrame.Size = UDim2.new(0, 280, 0, 30)
+        minBtn.Text = "□"
+    else
+        contentFrame.Visible = true
+        mainFrame.Size = UDim2.new(0, 280, 0, 160)
+        minBtn.Text = "_"
+    end
+end)
+
+-- // ---- HARD-SHUTDOWN ----
+closeBtn.MouseButton1Click:Connect(function()
+    shutdown = true
+    running = false
+    if loopCoroutine then
+        task.cancel(loopCoroutine)
+        loopCoroutine = nil
+    end
+    screenGui:Destroy()
+    print("🔴 Skript wurde vollständig beendet.")
+end)
+
+-- // ---- MODELL-SUCHE (nach Celestial/OG in Name, Attributen oder Text-Kindern) ----
+local function findBestModel()
+    local folder = workspace:FindFirstChild("Bases")
+    if not folder then
+        statusLabel.Text = "❌ Ordner 'Bases' nicht gefunden!"
+        return nil
     end
 
-    local targetModels = {}
-    for _, child in ipairs(bases:GetChildren()) do
-        if child:IsA("Model") then
-            if textContains(child, "Celestial") or textContains(child, "OG") then
-                table.insert(targetModels, child)
+    for _, model in ipairs(folder:GetChildren()) do
+        if model:IsA("Model") then
+            if textContains(model, "Celestial") or textContains(model, "OG") then
+                return model
             end
         end
     end
-
-    if #targetModels == 0 then
-        warn("⚠️  Kein Modell mit 'Celestial' oder 'OG' gefunden.")
-        return false
-    end
-
-    for _, model in ipairs(targetModels) do
-        if not isRunning then break end
-
-        local modelPos = getModelPosition(model)
-        if not modelPos then
-            warn("❌ Keine gültige Position für Modell: " .. model.Name)
-            continue
-        end
-
-        local character = LocalPlayer.Character
-        if not character then
-            warn("❌ Charakter nicht vorhanden.")
-            return false
-        end
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            warn("❌ HumanoidRootPart nicht gefunden.")
-            return false
-        end
-
-        -- 1. Teleport zum Modell
-        local teleportPos = modelPos + Vector3.new(0, 3, 0)
-        hrp.CFrame = CFrame.new(teleportPos)
-        task.wait(0.1)
-
-        -- 2. Prompt suchen und feuern
-        local prompt = findPrompt(model)
-        if prompt and fireproximityprompt then
-            fireproximityprompt(prompt)
-            task.wait(0.8) -- 0.8 Sekunden halten
-        else
-            warn("⚠️  Kein ProximityPrompt oder fireproximityprompt nicht verfügbar in: " .. model.Name)
-        end
-
-        -- 3. Teleport zur Zielposition
-        hrp.CFrame = CFrame.new(-150, 6, -597)
-        task.wait(0.2)
-    end
-
-    return true
+    return nil
 end
 
+-- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
-    isRunning = true
-    toggleBtn.Text = "⏹ Stop"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
-    updateStatus("Running...", Color3.fromRGB(100, 255, 100))
+    if loopCoroutine then
+        task.cancel(loopCoroutine)
+        loopCoroutine = nil
+    end
 
-    task.spawn(function()
-        while isRunning do
-            local success = pcall(executeCycle)
-            if not success then
-                warn("❌ Fehler im Zyklus.")
-            end
-            if isRunning then
-                task.wait(1) -- Pause zwischen Zyklen
+    loopCoroutine = task.spawn(function()
+        while not shutdown do
+            if running then
+                statusLabel.Text = "🔄 Suche bestes Modell..."
+                local targetModel = findBestModel()
+
+                if targetModel then
+                    statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name
+
+                    local modelPos = getModelPosition(targetModel)
+                    if modelPos then
+                        hrp.CFrame = CFrame.new(modelPos + Vector3.new(0, 3, 0))
+                        task.wait(0.1)
+                    else
+                        statusLabel.Text = "⚠️ Keine Position im Modell!"
+                        task.wait(LOOP_WAIT)
+                        goto continue
+                    end
+
+                    local prompt = findPrompt(targetModel)
+                    if prompt then
+                        statusLabel.Text = "⌨️ Halte ProximityPrompt (" .. HOLD_TIME .. "s)..."
+                        local startTime = tick()
+                        while tick() - startTime < HOLD_TIME do
+                            if fireproximityprompt then
+                                fireproximityprompt(prompt)
+                            else
+                                warn("❌ fireproximityprompt nicht verfügbar!")
+                                break
+                            end
+                            task.wait(FIRE_INTERVAL)
+                        end
+                        task.wait(0.1)
+                    else
+                        statusLabel.Text = "⚠️ Kein ProximityPrompt im Modell!"
+                        task.wait(LOOP_WAIT)
+                        goto continue
+                    end
+
+                    statusLabel.Text = "🚀 Teleporte zu Ziel..."
+                    hrp.CFrame = TARGET_COORDS
+                    task.wait(0.1)
+
+                    statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
+                else
+                    statusLabel.Text = "❌ Kein Modell mit 'Celestial' oder 'OG' gefunden!"
+                end
+
+                ::continue::
+                task.wait(LOOP_WAIT)
+            else
+                statusLabel.Text = "⏸ Gestoppt"
+                task.wait(0.5)
             end
         end
-        updateStatus("Stopped", Color3.fromRGB(255, 100, 100))
-        toggleBtn.Text = "▶ Start"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 220)
     end)
 end
 
--- Toggle
-toggleBtn.MouseButton1Click:Connect(function()
-    if isRunning then
-        isRunning = false
-        updateStatus("Stopping...", Color3.fromRGB(255, 200, 100))
+-- // ---- TOGGLE ----
+local function toggle()
+    if shutdown then return end
+    running = not running
+    if running then
+        toggleBtn.Text = "⏹ Stop"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+        statusLabel.Text = "▶ Läuft..."
+        if not loopCoroutine or loopCoroutine.Status == "Dead" then
+            startLoop()
+        end
     else
-        startLoop()
+        toggleBtn.Text = "▶ Start"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+        statusLabel.Text = "⏸ Gestoppt"
     end
-end)
+end
 
--- Initialer Status
-updateStatus("Idle", Color3.fromRGB(220, 220, 220))
+toggleBtn.MouseButton1Click:Connect(toggle)
 
--- Bei Schließen der GUI stoppen
-ui.CloseBtn.MouseButton1Click:Connect(function()
-    isRunning = false
-end)
+-- // ---- START ----
+print("✅ GUI geladen. Es werden Modelle in workspace.Bases mit 'Celestial' oder 'OG' gesucht.")
+statusLabel.Text = "⏸ Gestoppt"
