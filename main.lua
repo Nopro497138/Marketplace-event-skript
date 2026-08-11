@@ -1,8 +1,8 @@
 -- // ---- EINSTELLUNGEN ----
-local TARGET_COORDS = CFrame.new(-150, 6, -597)
-local LOOP_WAIT = 0.05
-local HOLD_TIME = 0.8
-local FIRE_INTERVAL = 0.05
+local TARGET_COORDS = CFrame.new(-150, 6, -597) -- Zielkoordinaten
+local LOOP_WAIT = 0.05   -- minimale Pause zwischen Runs
+local HOLD_TIME = 0.8     -- Haltezeit des Prompts (Sekunden)
+local FIRE_INTERVAL = 0.05 -- Intervall für wiederholtes Feuern
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -16,117 +16,17 @@ local running = false
 local shutdown = false
 local loopCoroutine = nil
 
--- // ---- HILFSFUNKTIONEN (Text-Suche) ----
-local function textContains(instance, searchText)
-    if not instance then return false end
-    if instance.Name and string.find(instance.Name, searchText, 1, true) then
-        return true
-    end
-    local attrs = instance:GetAttributes()
-    for _, v in pairs(attrs) do
-        if type(v) == "string" and string.find(v, searchText, 1, true) then
-            return true
-        end
-    end
-    for _, child in ipairs(instance:GetChildren()) do
-        if child:IsA("StringValue") and child.Value and string.find(child.Value, searchText, 1, true) then
-            return true
-        end
-        if child:IsA("TextLabel") and child.Text and string.find(child.Text, searchText, 1, true) then
-            return true
-        end
-        if child:IsA("TextButton") and child.Text and string.find(child.Text, searchText, 1, true) then
-            return true
-        end
-        if child:IsA("TextBox") and child.Text and string.find(child.Text, searchText, 1, true) then
-            return true
-        end
-        if textContains(child, searchText) then
-            return true
-        end
-    end
-    return false
-end
-
--- // ---- PROMPT FINDEN (rekursiv) ----
-local function findPrompt(instance)
-    if instance:IsA("ProximityPrompt") then
-        return instance
-    end
-    for _, child in ipairs(instance:GetChildren()) do
-        local found = findPrompt(child)
-        if found then
-            return found
-        end
-    end
+-- // ---- HILFSFUNKTION: Keyword im Text erkennen ----
+local function findKeyword(text)
+    local lower = string.lower(text)
+    if string.find(lower, "celestial") then return "celestial" end
+    if string.find(lower, "og") then return "og" end
     return nil
 end
 
--- // ---- POSITION DES MODELLS ----
-local function getModelPosition(model)
-    if model:IsA("Model") then
-        if model.PrimaryPart then
-            return model.PrimaryPart.Position
-        end
-        for _, child in ipairs(model:GetDescendants()) do
-            if child:IsA("BasePart") then
-                return child.Position
-            end
-        end
-        return model:GetPivot().Position
-    end
-    return nil
-end
-
--- // ---- UNEQUIP (robust) ----
-local function unequipAll()
-    local success, err = pcall(function()
-        local char = player.Character
-        if not char then return end
-        for _, obj in ipairs(char:GetChildren()) do
-            if obj:IsA("Tool") or obj:IsA("HopperBin") then
-                obj:Destroy()
-            end
-        end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid:UnequipTools()
-        end
-    end)
-    if not success then
-        warn("Unequip fehlgeschlagen: " .. tostring(err))
-    end
-end
-
--- // ---- PROMPT FEUERN (robust mit Fallbacks) ----
-local function firePrompt(prompt)
-    if not prompt then return false end
-    local success = false
-    -- Versuche fireproximityprompt
-    if fireproximityprompt then
-        success = pcall(fireproximityprompt, prompt)
-        if success then return true end
-    end
-    -- Versuche firepickupprompt
-    if firepickupprompt then
-        success = pcall(firepickupprompt, prompt)
-        if success then return true end
-    end
-    -- Fallback: manuell InputHold
-    if prompt.InputHoldBegin and prompt.InputHoldEnd then
-        success = pcall(function()
-            prompt:InputHoldBegin()
-            task.wait(0.05)
-            prompt:InputHoldEnd()
-        end)
-        if success then return true end
-    end
-    return false
-end
-
--- // ---- GUI ERSTELLEN (unverändert) ----
+-- // ---- GUI ERSTELLEN ----
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoFarmGUI"
+screenGui.Name = "BaseFarmGUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
@@ -151,7 +51,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, -70, 1, 0)
 titleText.Position = UDim2.new(0, 5, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "⚡ Auto Celestial / OG"
+titleText.Text = "🏠 Base Farm (Celestial/OG)"
 titleText.TextColor3 = Color3.new(1, 1, 1)
 titleText.TextSize = 14
 titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -261,25 +161,89 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE (workspace.Bases) ----
+-- // ---- MODELL-SUCHE (Name, Werte, Attribute) ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Bases")
     if not folder then
         statusLabel.Text = "❌ Ordner 'Bases' nicht gefunden!"
-        return nil
+        return nil, nil
     end
 
+    -- Wir nehmen das erste Modell, das eines der Keywords enthält
     for _, model in ipairs(folder:GetChildren()) do
         if model:IsA("Model") then
-            if textContains(model, "Celestial") or textContains(model, "OG") then
-                return model
+            local keywordFound = nil
+
+            -- 1. Modellname prüfen
+            local kw = findKeyword(model.Name)
+            if kw then keywordFound = kw end
+
+            -- 2. Alle Descendants nach String-Werten durchsuchen
+            if not keywordFound then
+                for _, child in ipairs(model:GetDescendants()) do
+                    if child:IsA("StringValue") or child:IsA("ObjectValue") or
+                       child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
+                        local val = tostring(child.Value)
+                        kw = findKeyword(val)
+                        if kw then
+                            keywordFound = kw
+                            break
+                        end
+                    end
+                end
             end
+
+            -- 3. Attribute prüfen
+            if not keywordFound then
+                for _, attrValue in pairs(model:GetAttributes()) do
+                    local val = tostring(attrValue)
+                    kw = findKeyword(val)
+                    if kw then
+                        keywordFound = kw
+                        break
+                    end
+                end
+            end
+
+            if keywordFound then
+                return model, keywordFound
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+-- // ---- HILFSFUNKTION: Part im Modell finden ----
+local function getModelPart(model)
+    if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
+        return model.PrimaryPart
+    end
+    return model:FindFirstChildWhichIsA("BasePart")
+end
+
+-- // ---- PROMPT FINDEN (ProximityPrompt oder PickupPrompt) ----
+local function getPrompt(model)
+    -- Suche zuerst nach ProximityPrompt
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
+    if prompt then return prompt end
+    prompt = model:FindFirstChild("ProximityPrompt")
+    if prompt then return prompt end
+    -- Fallback: PickupPrompt
+    prompt = model:FindFirstChildWhichIsA("PickupPrompt")
+    if prompt then return prompt end
+    prompt = model:FindFirstChild("PickupPrompt")
+    if prompt then return prompt end
+    -- Auch in Descendants suchen
+    for _, child in ipairs(model:GetDescendants()) do
+        if child:IsA("ProximityPrompt") or child:IsA("PickupPrompt") then
+            return child
         end
     end
     return nil
 end
 
--- // ---- HAUPT-SCHLEIFE (robust) ----
+-- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
     if loopCoroutine then
         task.cancel(loopCoroutine)
@@ -290,64 +254,49 @@ local function startLoop()
         while not shutdown do
             if running then
                 statusLabel.Text = "🔄 Suche bestes Modell..."
-                local targetModel = findBestModel()
+                local targetModel, keyword = findBestModel()
 
                 if targetModel then
-                    statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name
+                    statusLabel.Text = "📍 Modell: " .. targetModel.Name .. " (" .. (keyword or "?") .. ")"
 
-                    -- 1. Position ermitteln und teleportieren
-                    local modelPos = getModelPosition(targetModel)
-                    if modelPos then
-                        local success, err = pcall(function()
-                            hrp.CFrame = CFrame.new(modelPos + Vector3.new(0, 3, 0))
-                        end)
-                        if not success then
-                            statusLabel.Text = "⚠️ Teleport fehlgeschlagen: " .. tostring(err)
-                            task.wait(LOOP_WAIT)
-                            goto continue
-                        end
+                    local part = getModelPart(targetModel)
+                    if part then
+                        hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
                         task.wait(0.1)
                     else
-                        statusLabel.Text = "⚠️ Keine Position im Modell!"
+                        statusLabel.Text = "⚠️ Kein Part im Modell!"
                         task.wait(LOOP_WAIT)
                         goto continue
                     end
 
-                    -- 2. Prompt suchen
-                    local prompt = findPrompt(targetModel)
+                    local prompt = getPrompt(targetModel)
                     if prompt then
-                        statusLabel.Text = "⌨️ Halte ProximityPrompt (" .. HOLD_TIME .. "s)..."
+                        statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
-                            if not running then break end
-                            local fired = firePrompt(prompt)
-                            if not fired then
-                                statusLabel.Text = "⚠️ Prompt konnte nicht gefeuert werden!"
-                                break
-                            end
+                            pcall(function()
+                                if fireproximityprompt then
+                                    fireproximityprompt(prompt)
+                                elseif firepickupprompt then
+                                    firepickupprompt(prompt)
+                                else
+                                    prompt:InputHoldBegin()
+                                    task.wait(0.05)
+                                    prompt:InputHoldEnd()
+                                end
+                            end)
                             task.wait(FIRE_INTERVAL)
                         end
                         task.wait(0.1)
                     else
-                        statusLabel.Text = "⚠️ Kein ProximityPrompt im Modell!"
+                        statusLabel.Text = "⚠️ Kein Prompt im Modell!"
                         task.wait(LOOP_WAIT)
                         goto continue
                     end
 
-                    -- 3. Teleport zu Ziel
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
-                    local success, err = pcall(function()
-                        hrp.CFrame = TARGET_COORDS
-                    end)
-                    if not success then
-                        statusLabel.Text = "⚠️ Ziel-Teleport fehlgeschlagen: " .. tostring(err)
-                    end
+                    hrp.CFrame = TARGET_COORDS
                     task.wait(0.1)
-
-                    -- 4. Inventar leeren (optional)
-                    statusLabel.Text = "🧹 Leere Inventar..."
-                    unequipAll()
-                    task.wait(0.05)
 
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
@@ -385,5 +334,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Es werden Modelle in workspace.Bases mit 'Celestial' oder 'OG' gesucht.")
+print("✅ Base-Farm GUI geladen. Modell mit 'Celestial' oder 'OG' wird gesucht, Prompt gehalten und teleportiert.")
 statusLabel.Text = "⏸ Gestoppt"
