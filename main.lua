@@ -1,7 +1,7 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 0.5 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
-local HOLD_TIME = 1.5 -- Wie lange der PickupPrompt gedrückt wird (Sekunden)
+local LOOP_WAIT = 1 -- Wartezeit zwischen zwei Durchläufen (Sekunden)
+local HOLD_TIME = 2 -- Wie lange der PickupPrompt gedrückt wird (Sekunden)
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
