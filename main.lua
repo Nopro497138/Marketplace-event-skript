@@ -8,8 +8,6 @@ local FIRE_INTERVAL = 0.05 -- Intervall für wiederholtes Feuern des Prompts
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
 
 -- // ---- STATUS ----
 local running = false
@@ -168,7 +166,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE MIT PRIORITÄT (jetzt mit Prüfung ALLER Namen & Werte) ----
+-- // ---- MODELL-SUCHE MIT PRIORITÄT (prüft ALLE Namen & Werte) ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
@@ -185,7 +183,6 @@ local function findBestModel()
             local currentPriority = 3
             local keywordFound = nil
 
-            -- Prüfe den Modell-Namen
             local kw = findKeyword(model.Name)
             if kw then
                 local prio = getPriority(kw)
@@ -195,10 +192,9 @@ local function findBestModel()
                 end
             end
 
-            -- Prüfe ALLE Nachkommen (jeden Namen, jeden Wert)
             if currentPriority > 1 then
                 for _, child in ipairs(model:GetDescendants()) do
-                    -- Prüfe den Namen jedes Kindes (inkl. Prompt, Mesh, Parts, etc.)
+                    -- Namen aller Kinder prüfen
                     local kwChild = findKeyword(child.Name)
                     if kwChild then
                         local prio = getPriority(kwChild)
@@ -208,7 +204,7 @@ local function findBestModel()
                             if currentPriority == 1 then break end
                         end
                     end
-                    -- Prüfe Werte von Value-Objekten
+                    -- Werte von Value-Objekten
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
                        child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
                         local val = tostring(child.Value)
@@ -225,7 +221,6 @@ local function findBestModel()
                 end
             end
 
-            -- Prüfe Attribute
             if currentPriority > 1 then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
@@ -251,10 +246,8 @@ local function findBestModel()
     end
 
     if bestModel then
-        statusLabel.Text = "📍 Gefunden: " .. bestModel.Name .. " (" .. (foundKeyword or "?") .. ")"
         return bestModel, foundKeyword
     else
-        statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
         return nil, nil
     end
 end
@@ -269,64 +262,43 @@ end
 
 -- // ---- ULTRA-ROBUSTE PROMPT-SUCHE (mit Fallback für "Mesh.PickupPrompt") ----
 local function getPrompt(model)
-    -- 1. Direkte Kinder nach PickupPrompt durchsuchen
     local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
     if prompt then return prompt end
-
-    -- 2. Nach Namen "PickupPrompt" suchen
     prompt = model:FindFirstChild("PickupPrompt")
     if prompt then return prompt end
 
-    -- 3. Rekursive Suche über ALLE Nachkommen
     for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("PickupPrompt") then
-            return child
-        end
-        if child.Name == "PickupPrompt" then
-            return child
-        end
+        if child:IsA("PickupPrompt") then return child end
+        if child.Name == "PickupPrompt" then return child end
     end
 
-    -- 4. Fallback: Gezielt nach "Mesh" suchen und darin den Prompt
     local mesh = model:FindFirstChild("Mesh")
     if mesh then
         prompt = mesh:FindFirstChildWhichIsA("PickupPrompt")
         if prompt then return prompt end
         prompt = mesh:FindFirstChild("PickupPrompt")
         if prompt then return prompt end
-        -- Auch rekursiv im Mesh suchen (falls noch tiefer)
         for _, child in ipairs(mesh:GetDescendants()) do
-            if child:IsA("PickupPrompt") then
-                return child
-            end
-            if child.Name == "PickupPrompt" then
-                return child
-            end
+            if child:IsA("PickupPrompt") then return child end
+            if child.Name == "PickupPrompt" then return child end
         end
     end
 
-    -- 5. Fallback: ProximityPrompt (falls das Spiel es anders nennt)
+    -- Fallback ProximityPrompt
     prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
     if prompt then return prompt end
     prompt = model:FindFirstChild("ProximityPrompt")
     if prompt then return prompt end
-
     for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("ProximityPrompt") then
-            return child
-        end
-        if child.Name == "ProximityPrompt" then
-            return child
-        end
+        if child:IsA("ProximityPrompt") then return child end
+        if child.Name == "ProximityPrompt" then return child end
     end
 
-    -- 6. Nichts gefunden
     return nil
 end
 
 -- // ---- UNEQUIP + EQUIP ----
-local function unequipAll()
-    local char = player.Character
+local function unequipAll(char)
     if not char then return end
     for _, obj in ipairs(char:GetChildren()) do
         if obj:IsA("Tool") or obj:IsA("HopperBin") then
@@ -351,7 +323,7 @@ local function equipFirstSlot()
     end
 end
 
--- // ---- HAUPT-SCHLEIFE ----
+-- // ---- HAUPT-SCHLEIFE (endlos, mit Fehlerabfang) ----
 local function startLoop()
     if loopCoroutine then
         task.cancel(loopCoroutine)
@@ -360,67 +332,98 @@ local function startLoop()
 
     loopCoroutine = task.spawn(function()
         while not shutdown do
+            -- Schleife läuft nur, wenn running == true
             if running then
-                local targetModel, keyword = findBestModel()
+                -- Fehler abfangen, damit die Schleife nicht abbricht
+                local success, err = pcall(function()
+                    -- Aktuellen Charakter und RootPart holen (bei jedem Durchlauf neu)
+                    local character = player.Character
+                    if not character then
+                        statusLabel.Text = "⏳ Warte auf Charakter..."
+                        task.wait(0.5)
+                        return -- springt aus pcall, aber Schleife läuft weiter
+                    end
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    if not hrp then
+                        statusLabel.Text = "⏳ Warte auf HumanoidRootPart..."
+                        task.wait(0.5)
+                        return
+                    end
 
-                if targetModel then
+                    -- 1. Modell suchen
+                    local targetModel, keyword = findBestModel()
+                    if not targetModel then
+                        statusLabel.Text = "❌ Kein passendes Modell gefunden!"
+                        task.wait(LOOP_WAIT)
+                        return
+                    end
+
+                    -- 2. Part finden und teleportieren
                     local part = getModelPart(targetModel)
-                    if part then
-                        hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-                        task.wait(0.1)
-                    else
+                    if not part then
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
                         task.wait(LOOP_WAIT)
-                        continue
+                        return
                     end
+                    hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+                    task.wait(0.1)
 
+                    -- 3. Prompt finden und halten
                     local prompt = getPrompt(targetModel)
-                    if prompt then
-                        statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
-                        local startTime = tick()
-                        while tick() - startTime < HOLD_TIME do
-                            pcall(function()
-                                if fireproximityprompt then
-                                    fireproximityprompt(prompt)
-                                elseif firepickupprompt then
-                                    firepickupprompt(prompt)
-                                else
-                                    prompt:InputHoldBegin()
-                                    task.wait(0.05)
-                                    prompt:InputHoldEnd()
-                                end
-                            end)
-                            task.wait(FIRE_INTERVAL)
-                        end
-                        task.wait(0.1)
-                    else
-                        statusLabel.Text = "❌ Kein Prompt im Modell gefunden!"
+                    if not prompt then
+                        statusLabel.Text = "❌ Kein Prompt im Modell!"
                         task.wait(LOOP_WAIT)
-                        continue
+                        return
                     end
 
+                    statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
+                    local startTime = tick()
+                    while tick() - startTime < HOLD_TIME do
+                        pcall(function()
+                            if fireproximityprompt then
+                                fireproximityprompt(prompt)
+                            elseif firepickupprompt then
+                                firepickupprompt(prompt)
+                            else
+                                prompt:InputHoldBegin()
+                                task.wait(0.05)
+                                prompt:InputHoldEnd()
+                            end
+                        end)
+                        task.wait(FIRE_INTERVAL)
+                    end
+                    task.wait(0.1)
+
+                    -- 4. Teleport zum Ziel
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
                     task.wait(0.1)
 
+                    -- 5. Unequip
                     statusLabel.Text = "🧹 Leere Inventar..."
-                    unequipAll()
+                    unequipAll(character)
                     task.wait(0.05)
 
+                    -- 6. Slot 1 ausrüsten
                     statusLabel.Text = "🔧 Rüste Slot 1 aus..."
                     equipFirstSlot()
                     task.wait(0.05)
 
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
-                else
-                    -- Status wird bereits von findBestModel gesetzt
-                end
+                end)
 
-                task.wait(LOOP_WAIT)
+                if not success then
+                    -- Fehler aufgetreten, kurz warten und weitermachen
+                    warn("Fehler im Hauptloop:", err)
+                    statusLabel.Text = "⚠️ Fehler – neuer Versuch..."
+                    task.wait(0.5)
+                end
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
             end
+            -- Kurze Pause, um CPU zu schonen
+            task.wait(0.01)
         end
     end)
 end
@@ -446,5 +449,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Die Prompt-Suche ist extrem robust (prüft alle Namen und Werte).")
+print("✅ GUI geladen. Das Skript läuft jetzt in einer stabilen Endlosschleife.")
 statusLabel.Text = "⏸ Gestoppt"
