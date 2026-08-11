@@ -1,8 +1,8 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs
+local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs (so schnell wie möglich)
 local HOLD_TIME = 0.8 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
-local FIRE_INTERVAL = 0.05 -- Intervall für wiederholtes Feuern des Prompts
+local FIRE_INTERVAL = 0.05 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -276,31 +276,19 @@ local function getPrompt(model)
     return model:FindFirstChild("PickupPrompt")
 end
 
--- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins ----
+-- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins aus dem Charakter ----
 local function unequipAll()
     local char = player.Character
     if not char then return end
     for _, obj in ipairs(char:GetChildren()) do
         if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy()
+            obj:Destroy() -- oder obj.Parent = nil, je nachdem was stabiler ist
         end
     end
+    -- Optional: Auch den ActiveTool-Status zurücksetzen (falls vorhanden)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        humanoid:UnequipTools()
-    end
-end
-
--- // ---- EQUIP-FUNKTION: Rüstet das erste Tool aus dem Backpack aus (Slot 1) ----
-local function equipFirstSlot()
-    local backpack = player:FindFirstChild("Backpack")
-    if not backpack then return end
-    local tools = backpack:GetChildren()
-    for _, tool in ipairs(tools) do
-        if tool:IsA("Tool") then
-            tool:Equip()
-            return
-        end
+        humanoid:UnequipTools() -- Native Methode, um alle Tools abzulegen
     end
 end
 
@@ -333,6 +321,8 @@ local function startLoop()
                     local prompt = getPrompt(targetModel)
                     if prompt then
                         statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
+                        
+                        -- Prompt wiederholt feuern (simuliert Halten)
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
                             pcall(function()
@@ -364,17 +354,12 @@ local function startLoop()
                     unequipAll()
                     task.wait(0.05)
 
-                    -- // ---- SLOT 1 AUSRÜSTEN ----
-                    statusLabel.Text = "🔧 Rüste Slot 1 aus..."
-                    equipFirstSlot()
-                    task.wait(0.05)
-
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
                     statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
 
-                task.wait(LOOP_WAIT)
+                task.wait(LOOP_WAIT) -- minimale Pause
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
@@ -404,5 +389,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. PickupPrompt wird für " .. HOLD_TIME .. "s simuliert, Inventar wird geleert und Slot 1 ausgerüstet.")
+print("✅ GUI geladen. PickupPrompt wird für " .. HOLD_TIME .. "s simuliert, Inventar wird nach jedem Run geleert.")
 statusLabel.Text = "⏸ Gestoppt"
