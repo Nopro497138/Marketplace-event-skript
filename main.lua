@@ -6,7 +6,7 @@ local FinishRun = Remotes:WaitForChild("FinishRun")   -- RemoteFunction
 
 -- // Einstellungen
 local loopInterval = 0.2      -- Zeitabstand zwischen den Wiederholungen (in Sekunden)
-local betweenDelay = 0.05     -- Cooldown zwischen OnCast und FinishRun (in Sekunden)
+local betweenDelay = 0.2     -- Cooldown zwischen OnCast und FinishRun (in Sekunden)
 
 -- // Status der Schleife
 local running = false
