@@ -1,8 +1,8 @@
 -- // ---- EINSTELLUNGEN ----
-local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs (so schnell wie möglich)
-local HOLD_TIME = 0.8 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
-local FIRE_INTERVAL = 0.05 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
+local TARGET_COORDS = CFrame.new(-126, 13, -182)
+local LOOP_WAIT = 0.05
+local HOLD_TIME = 0.8
+local FIRE_INTERVAL = 0.05
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
@@ -16,7 +16,7 @@ local running = false
 local shutdown = false
 local loopCoroutine = nil
 
--- // ---- HILFSFUNKTION: Erkennen des Keywords mit Priorität ----
+-- // ---- HILFSFUNKTION: Keyword im Text erkennen ----
 local function findKeyword(text)
     local lower = string.lower(text)
     if string.find(lower, "god") then return "god" end
@@ -25,13 +25,7 @@ local function findKeyword(text)
     return nil
 end
 
-local function getPriority(keyword)
-    if keyword == "god" or keyword == "og" then return 1 end
-    if keyword == "secret" then return 2 end
-    return 3
-end
-
--- // ---- GUI ERSTELLEN ----
+-- // ---- GUI ERSTELLEN (unverändert) ----
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoFarmGUI"
 screenGui.ResetOnSpawn = false
@@ -168,7 +162,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE MIT PRIORITÄT ----
+-- // ---- MODELL-SUCHE – NUR MODELLNAME WIRD GEPRÜFT ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
@@ -182,72 +176,20 @@ local function findBestModel()
 
     for _, model in ipairs(folder:GetChildren()) do
         if model:IsA("Model") then
-            local currentPriority = 3
-            local keywordFound = nil
-
-            local kw = findKeyword(model.Name)
+            local kw = findKeyword(model.Name)   -- nur der Name zählt
             if kw then
-                local prio = getPriority(kw)
-                if prio < currentPriority then
-                    currentPriority = prio
-                    keywordFound = kw
+                local prio = (kw == "god" or kw == "og") and 1 or 2  -- secret = 2
+                if prio < bestPriority then
+                    bestPriority = prio
+                    bestModel = model
+                    foundKeyword = kw
+                    if bestPriority == 1 then break end
                 end
-            end
-
-            if currentPriority > 1 then
-                for _, child in ipairs(model:GetDescendants()) do
-                    if child:IsA("StringValue") or child:IsA("ObjectValue") or 
-                       child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
-                        local val = tostring(child.Value)
-                        kw = findKeyword(val)
-                        if kw then
-                            local prio = getPriority(kw)
-                            if prio < currentPriority then
-                                currentPriority = prio
-                                keywordFound = kw
-                                if currentPriority == 1 then break end
-                            end
-                        end
-                    end
-                    if child:IsA("BasePart") then
-                        kw = findKeyword(child.Name)
-                        if kw then
-                            local prio = getPriority(kw)
-                            if prio < currentPriority then
-                                currentPriority = prio
-                                keywordFound = kw
-                                if currentPriority == 1 then break end
-                            end
-                        end
-                    end
-                end
-            end
-
-            if currentPriority > 1 then
-                for _, attrValue in pairs(model:GetAttributes()) do
-                    local val = tostring(attrValue)
-                    kw = findKeyword(val)
-                    if kw then
-                        local prio = getPriority(kw)
-                        if prio < currentPriority then
-                            currentPriority = prio
-                            keywordFound = kw
-                            if currentPriority == 1 then break end
-                        end
-                    end
-                end
-            end
-
-            if currentPriority < bestPriority then
-                bestPriority = currentPriority
-                bestModel = model
-                foundKeyword = keywordFound
-                if bestPriority == 1 then break end
             end
         end
     end
 
-    if bestModel then
+    if bestModel and foundKeyword then
         return bestModel, foundKeyword
     else
         return nil, nil
@@ -262,7 +204,7 @@ local function getModelPart(model)
     return model:FindFirstChildWhichIsA("BasePart")
 end
 
--- // ---- PROMPT FINDEN (unter "Mesh" nach "PickupPrompt") ----
+-- // ---- PROMPT FINDEN (NUR IM ÜBERGEBENEN MODELL) ----
 local function getPrompt(model)
     local meshContainer = model:FindFirstChild("Mesh")
     if meshContainer then
@@ -276,19 +218,18 @@ local function getPrompt(model)
     return model:FindFirstChild("PickupPrompt")
 end
 
--- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins aus dem Charakter ----
+-- // ---- UNEQUIP: Alle Tools entfernen ----
 local function unequipAll()
     local char = player.Character
     if not char then return end
     for _, obj in ipairs(char:GetChildren()) do
         if obj:IsA("Tool") or obj:IsA("HopperBin") then
-            obj:Destroy() -- oder obj.Parent = nil, je nachdem was stabiler ist
+            obj:Destroy()
         end
     end
-    -- Optional: Auch den ActiveTool-Status zurücksetzen (falls vorhanden)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        humanoid:UnequipTools() -- Native Methode, um alle Tools abzulegen
+        humanoid:UnequipTools()
     end
 end
 
@@ -315,14 +256,12 @@ local function startLoop()
                     else
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
                         task.wait(LOOP_WAIT)
-                        continue
+                        goto continue
                     end
 
-                    local prompt = getPrompt(targetModel)
+                    local prompt = getPrompt(targetModel)   -- sucht NUR in diesem Modell
                     if prompt then
                         statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
-                        
-                        -- Prompt wiederholt feuern (simuliert Halten)
                         local startTime = tick()
                         while tick() - startTime < HOLD_TIME do
                             pcall(function()
@@ -340,26 +279,26 @@ local function startLoop()
                         end
                         task.wait(0.1)
                     else
-                        statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
+                        statusLabel.Text = "⚠️ Kein PickupPrompt im Modell!"
                         task.wait(LOOP_WAIT)
-                        continue
+                        goto continue
                     end
 
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
                     task.wait(0.1)
 
-                    -- // ---- ALLES UNEQUIPPEN ----
                     statusLabel.Text = "🧹 Leere Inventar..."
                     unequipAll()
                     task.wait(0.05)
 
                     statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
                 else
-                    statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
+                    statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' im Namen!"
                 end
 
-                task.wait(LOOP_WAIT) -- minimale Pause
+                ::continue::
+                task.wait(LOOP_WAIT)
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
@@ -389,5 +328,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. PickupPrompt wird für " .. HOLD_TIME .. "s simuliert, Inventar wird nach jedem Run geleert.")
+print("✅ GUI geladen. Es werden NUR Brainrots mit 'God', 'OG' oder 'Secret' im Namen verarbeitet.")
 statusLabel.Text = "⏸ Gestoppt"
