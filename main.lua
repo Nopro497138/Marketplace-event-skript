@@ -1,13 +1,15 @@
 -- // ---- EINSTELLUNGEN ----
 local TARGET_COORDS = CFrame.new(-126, 13, -182) -- Zielkoordinaten
-local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs
+local LOOP_WAIT = 0.05 -- Minimale Pause zwischen Runs (so schnell wie möglich)
 local HOLD_TIME = 0.8 -- Wie lange der Prompt "gedrückt" wird (Sekunden)
-local FIRE_INTERVAL = 0.05 -- Intervall für wiederholtes Feuern des Prompts
+local FIRE_INTERVAL = 0.05 -- Alle wie viele Sekunden wird der Prompt erneut gefeuert
 
 -- // ---- SERVICE ----
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
 
 -- // ---- STATUS ----
 local running = false
@@ -166,7 +168,7 @@ closeBtn.MouseButton1Click:Connect(function()
     print("🔴 Skript wurde vollständig beendet.")
 end)
 
--- // ---- MODELL-SUCHE MIT PRIORITÄT (NUR MIT KEYWORDS "God", "OG", "Secret") ----
+-- // ---- MODELL-SUCHE MIT PRIORITÄT (NUR GOD/OG/SECRET) ----
 local function findBestModel()
     local folder = workspace:FindFirstChild("Brainrots")
     if not folder then
@@ -175,7 +177,7 @@ local function findBestModel()
     end
 
     local bestModel = nil
-    local bestPriority = 3   -- 3 = kein Keyword gefunden (wird ignoriert)
+    local bestPriority = 3
     local foundKeyword = nil
 
     for _, model in ipairs(folder:GetChildren()) do
@@ -183,6 +185,7 @@ local function findBestModel()
             local currentPriority = 3
             local keywordFound = nil
 
+            -- Modellnamen prüfen
             local kw = findKeyword(model.Name)
             if kw then
                 local prio = getPriority(kw)
@@ -192,26 +195,29 @@ local function findBestModel()
                 end
             end
 
+            -- In Descendants nach Werten und Part-Namen suchen
             if currentPriority > 1 then
                 for _, child in ipairs(model:GetDescendants()) do
-                    local kwChild = findKeyword(child.Name)
-                    if kwChild then
-                        local prio = getPriority(kwChild)
-                        if prio < currentPriority then
-                            currentPriority = prio
-                            keywordFound = kwChild
-                            if currentPriority == 1 then break end
-                        end
-                    end
                     if child:IsA("StringValue") or child:IsA("ObjectValue") or 
                        child:IsA("IntValue") or child:IsA("BoolValue") or child:IsA("NumberValue") then
                         local val = tostring(child.Value)
-                        local kwVal = findKeyword(val)
-                        if kwVal then
-                            local prio = getPriority(kwVal)
+                        kw = findKeyword(val)
+                        if kw then
+                            local prio = getPriority(kw)
                             if prio < currentPriority then
                                 currentPriority = prio
-                                keywordFound = kwVal
+                                keywordFound = kw
+                                if currentPriority == 1 then break end
+                            end
+                        end
+                    end
+                    if child:IsA("BasePart") then
+                        kw = findKeyword(child.Name)
+                        if kw then
+                            local prio = getPriority(kw)
+                            if prio < currentPriority then
+                                currentPriority = prio
+                                keywordFound = kw
                                 if currentPriority == 1 then break end
                             end
                         end
@@ -219,22 +225,23 @@ local function findBestModel()
                 end
             end
 
+            -- Attribute prüfen
             if currentPriority > 1 then
                 for _, attrValue in pairs(model:GetAttributes()) do
                     local val = tostring(attrValue)
-                    local kwAttr = findKeyword(val)
-                    if kwAttr then
-                        local prio = getPriority(kwAttr)
+                    kw = findKeyword(val)
+                    if kw then
+                        local prio = getPriority(kw)
                         if prio < currentPriority then
                             currentPriority = prio
-                            keywordFound = kwAttr
+                            keywordFound = kw
                             if currentPriority == 1 then break end
                         end
                     end
                 end
             end
 
-            -- NUR wenn ein Keyword gefunden wurde (Priority < 3), wird das Modell in Betracht gezogen
+            -- Nur wenn ein Keyword gefunden wurde (currentPriority < 3) und besser als bisher
             if currentPriority < bestPriority then
                 bestPriority = currentPriority
                 bestModel = model
@@ -244,15 +251,15 @@ local function findBestModel()
         end
     end
 
-    -- Nur zurückgeben, wenn ein Keyword gefunden wurde (bestPriority < 3)
-    if bestModel and bestPriority < 3 then
+    -- Sicherstellen, dass tatsächlich ein Keyword gefunden wurde
+    if bestModel and foundKeyword then
         return bestModel, foundKeyword
     else
         return nil, nil
     end
 end
 
--- // ---- PART IM MODELL FINDEN ----
+-- // ---- HILFSFUNKTION: Part im Modell finden ----
 local function getModelPart(model)
     if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
         return model.PrimaryPart
@@ -260,43 +267,36 @@ local function getModelPart(model)
     return model:FindFirstChildWhichIsA("BasePart")
 end
 
--- // ---- ULTRA-ROBUSTE PROMPT-SUCHE (mit Fallback für "Mesh.PickupPrompt") ----
+-- // ---- PROMPT FINDEN (unter "Mesh" nach "PickupPrompt") ----
 local function getPrompt(model)
+    local meshContainer = model:FindFirstChild("Mesh")
+    if meshContainer then
+        local prompt = meshContainer:FindFirstChildWhichIsA("PickupPrompt")
+        if prompt then return prompt end
+        prompt = meshContainer:FindFirstChild("PickupPrompt")
+        if prompt then return prompt end
+    end
     local prompt = model:FindFirstChildWhichIsA("PickupPrompt")
     if prompt then return prompt end
-    prompt = model:FindFirstChild("PickupPrompt")
-    if prompt then return prompt end
-
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("PickupPrompt") then return child end
-        if child.Name == "PickupPrompt" then return child end
-    end
-
-    local mesh = model:FindFirstChild("Mesh")
-    if mesh then
-        prompt = mesh:FindFirstChildWhichIsA("PickupPrompt")
-        if prompt then return prompt end
-        prompt = mesh:FindFirstChild("PickupPrompt")
-        if prompt then return prompt end
-        for _, child in ipairs(mesh:GetDescendants()) do
-            if child:IsA("PickupPrompt") then return child end
-            if child.Name == "PickupPrompt" then return child end
-        end
-    end
-
-    prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
-    if prompt then return prompt end
-    prompt = model:FindFirstChild("ProximityPrompt")
-    if prompt then return prompt end
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("ProximityPrompt") then return child end
-        if child.Name == "ProximityPrompt" then return child end
-    end
-
-    return nil
+    return model:FindFirstChild("PickupPrompt")
 end
 
--- // ---- HAUPT-SCHLEIFE (endlos, mit Fehlerabfang) ----
+-- // ---- UNEQUIP-FUNKTION: Entfernt alle Tools und HopperBins aus dem Charakter ----
+local function unequipAll()
+    local char = player.Character
+    if not char then return end
+    for _, obj in ipairs(char:GetChildren()) do
+        if obj:IsA("Tool") or obj:IsA("HopperBin") then
+            obj:Destroy()
+        end
+    end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:UnequipTools()
+    end
+end
+
+-- // ---- HAUPT-SCHLEIFE ----
 local function startLoop()
     if loopCoroutine then
         task.cancel(loopCoroutine)
@@ -306,79 +306,68 @@ local function startLoop()
     loopCoroutine = task.spawn(function()
         while not shutdown do
             if running then
-                local success, err = pcall(function()
-                    local character = player.Character
-                    if not character then
-                        statusLabel.Text = "⏳ Warte auf Charakter..."
-                        task.wait(0.5)
-                        return
-                    end
-                    local hrp = character:FindFirstChild("HumanoidRootPart")
-                    if not hrp then
-                        statusLabel.Text = "⏳ Warte auf HumanoidRootPart..."
-                        task.wait(0.5)
-                        return
-                    end
+                statusLabel.Text = "🔄 Suche bestes Modell..."
+                local targetModel, keyword = findBestModel()
 
-                    local targetModel, keyword = findBestModel()
-                    if not targetModel then
-                        statusLabel.Text = "❌ Kein Modell mit 'God', 'OG' oder 'Secret' gefunden!"
-                        task.wait(LOOP_WAIT)
-                        return
-                    end
+                if targetModel then
+                    statusLabel.Text = "📍 Modell gefunden: " .. targetModel.Name .. " (" .. (keyword or "?") .. ")"
 
                     local part = getModelPart(targetModel)
-                    if not part then
+                    if part then
+                        hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+                        task.wait(0.1)
+                    else
                         statusLabel.Text = "⚠️ Kein Part im Modell!"
                         task.wait(LOOP_WAIT)
-                        return
+                        goto continue
                     end
-                    hrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-                    task.wait(0.1)
 
                     local prompt = getPrompt(targetModel)
-                    if not prompt then
-                        statusLabel.Text = "❌ Kein Prompt im Modell!"
+                    if prompt then
+                        statusLabel.Text = "⌨️ Halte PickupPrompt (" .. HOLD_TIME .. "s)..."
+                        
+                        local startTime = tick()
+                        while tick() - startTime < HOLD_TIME do
+                            pcall(function()
+                                if fireproximityprompt then
+                                    fireproximityprompt(prompt)
+                                elseif firepickupprompt then
+                                    firepickupprompt(prompt)
+                                else
+                                    prompt:InputHoldBegin()
+                                    task.wait(0.05)
+                                    prompt:InputHoldEnd()
+                                end
+                            end)
+                            task.wait(FIRE_INTERVAL)
+                        end
+                        task.wait(0.1)
+                    else
+                        statusLabel.Text = "⚠️ Kein PickupPrompt unter 'Mesh' gefunden!"
                         task.wait(LOOP_WAIT)
-                        return
+                        goto continue
                     end
-
-                    statusLabel.Text = "⌨️ Halte Prompt (" .. HOLD_TIME .. "s)..."
-                    local startTime = tick()
-                    while tick() - startTime < HOLD_TIME do
-                        pcall(function()
-                            if fireproximityprompt then
-                                fireproximityprompt(prompt)
-                            elseif firepickupprompt then
-                                firepickupprompt(prompt)
-                            else
-                                prompt:InputHoldBegin()
-                                task.wait(0.05)
-                                prompt:InputHoldEnd()
-                            end
-                        end)
-                        task.wait(FIRE_INTERVAL)
-                    end
-                    task.wait(0.1)
 
                     statusLabel.Text = "🚀 Teleporte zu Ziel..."
                     hrp.CFrame = TARGET_COORDS
                     task.wait(0.1)
 
-                    -- Entfernt: Unequip und Equip von Slot 1
-                    statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
-                end)
+                    -- Inventar leeren (unequip all) – das Ausrüsten von Slot 1 wurde entfernt
+                    statusLabel.Text = "🧹 Leere Inventar..."
+                    unequipAll()
+                    task.wait(0.05)
 
-                if not success then
-                    warn("Fehler im Hauptloop:", err)
-                    statusLabel.Text = "⚠️ Fehler – neuer Versuch..."
-                    task.wait(0.5)
+                    statusLabel.Text = "✅ Durchlauf abgeschlossen. Warte..."
+                else
+                    statusLabel.Text = "❌ Kein Modell mit 'God'/'OG'/'Secret' gefunden!"
                 end
+
+                ::continue::
+                task.wait(LOOP_WAIT)
             else
                 statusLabel.Text = "⏸ Gestoppt"
                 task.wait(0.5)
             end
-            task.wait(0.01)
         end
     end)
 end
@@ -404,5 +393,5 @@ end
 toggleBtn.MouseButton1Click:Connect(toggle)
 
 -- // ---- START ----
-print("✅ GUI geladen. Das Skript läuft jetzt in einer stabilen Endlosschleife.")
+print("✅ GUI geladen. PickupPrompt wird für " .. HOLD_TIME .. "s simuliert, Inventar wird nach jedem Run geleert.")
 statusLabel.Text = "⏸ Gestoppt"
