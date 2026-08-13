@@ -88,13 +88,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 -- Direkt auf das Model aimen
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
                 
-                -- 10 mal klicken mit 1 Sekunde Pause dazwischen
-                for i = 1, 10 do
-                    StatusLabel:Set("Status: Klick " .. i .. "/10")
+                -- 5 mal klicken mit 0.5 Sekunden Pause dazwischen
+                for i = 1, 5 do
+                    StatusLabel:Set("Status: Klick " .. i .. "/5")
                     pcall(function()
                         mouse1click()
                     end)
-                    task.wait(1)
+                    task.wait(0.5)
                 end
             end
         else
