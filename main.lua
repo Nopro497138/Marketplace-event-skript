@@ -15,11 +15,66 @@ local Tab = Window:CreateTab("Main", 4483362458)
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- Status Label im Rayfield UI
 local StatusLabel = Tab:CreateLabel("Status: Bereit (Drücke Left CTRL)")
+
+-- Variablen für die Target-Funktion
+local targetPlayerName = ""
+local followTargetEnabled = false
+
+-- Rayfield UI Elemente
+Tab:CreateInput({
+   Name = "Target Player Name",
+   PlaceholderText = "Spielername eingeben...",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(text)
+      targetPlayerName = text
+   end,
+})
+
+Tab:CreateToggle({
+   Name = "Vor Target stehen",
+   CurrentValue = false,
+   Flag = "FollowToggle",
+   Callback = function(value)
+      followTargetEnabled = value
+      if value then
+         StatusLabel:Set("Status: Folge " .. (targetPlayerName ~= "" and targetPlayerName or "Niemand") .. "...")
+      else
+         StatusLabel:Set("Status: Bereit (Drücke Left CTRL)")
+      end
+   end,
+})
+
+-- Loop der dich vor das Target setzt, solange aktiv
+RunService.RenderStepped:Connect(function()
+    if not followTargetEnabled then return end
+    
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+    
+    -- Finde den Spieler anhand des Namens (auch Teilnamen funktionieren)
+    local targetChar = nil
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Name:lower():sub(1, #targetPlayerName) == targetPlayerName:lower() then
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                targetChar = player.Character
+                break
+            end
+        end
+    end
+    
+    if targetChar then
+        local targetRoot = targetChar.HumanoidRootPart
+        -- Setze den Charakter direkt vor das Target (z.B. 3 Studs vor dessen Blickrichtung)
+        rootPart.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -3)
+    end
+end)
 
 -- Funktion zum Markieren von direkten Workspace Models
 local function highlightWorkspaceModels()
@@ -102,7 +157,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             task.wait(1)
         end
         
-        StatusLabel:Set("Status: Bereit (Drücke Left CTRL)")
+        if not followTargetEnabled then
+            StatusLabel:Set("Status: Bereit (Drücke Left CTRL)")
+        end
         isExecuting = false
     end
 end)
