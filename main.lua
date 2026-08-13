@@ -29,72 +29,83 @@ player.CharacterAdded:Connect(function(newChar)
    print("[Log] Character neu geladen.")
 end)
 
--- Funktion, die an einer bestimmten Position nach "Cosmic" / "God" (bzw. Fallback) sucht und einsammelt
+-- Funktion, die den gesamten Ordner nach "Cosmic" oder "God" durchsucht (inkl. TextObjekte, Properties etc.)
 local function searchAndFarmAtPosition(pos)
    if not farmingActive or not humanoidRootPart then return false end
    
    -- 1. Zu den Koordinaten teleportieren
    humanoidRootPart.CFrame = CFrame.new(pos)
-   task.wait(0.15) -- Minimaler Yield, damit der Client/Server die Position und geladene Objekte verarbeitet
+   task.wait(0.4) -- Etwas langsamer gemacht, damit der Server/Client die Objekte laden kann
    
    local itemSpawners = workspace:FindFirstChild("ItemSpawners")
-   if not itemSpawners then return false end
-   
-   local targetParents = {}
-   
-   -- Suche nach "Cosmic" oder "God"
-   for _, child in ipairs(itemSpawners:GetChildren()) do
-      if child.Name == "Cosmic" or child.Name == "God" then
-         table.insert(targetParents, child)
-      end
+   if not itemSpawners then
+      print("[Log] Fehler: workspace.ItemSpawners nicht gefunden!")
+      return false
    end
    
-   -- Fallback auf "Legendary" und "Epic", falls nichts da ist
-   if #targetParents == 0 then
-      for _, child in ipairs(itemSpawners:GetChildren()) do
-         if child.Name == "Legendary" or child.Name == "Epic" then
-            table.insert(targetParents, child)
-         end
-      end
-   end
+   local foundAny = false
    
-   if #targetParents > 0 then
-      for _, parentObj in ipairs(targetParents) do
-         if not farmingActive then break end
+   -- Rekursive Durchsuchung des gesamten Ordners nach Namen oder Text-Properties
+   for _, obj in ipairs(itemSpawners:GetDescendants()) do
+      if not farmingActive then break end
+      
+      local matchFound = false
+      
+      -- Prüfen, ob der Name "Cosmic" oder "God" ist
+      if obj.Name == "Cosmic" or obj.Name == "God" then
+         matchFound = true
+      -- Alternativ prüfen, ob es ein Text-Objekt ist (z.B. TextLabel / Textbox) und der Text passt
+      elseif (obj:IsA("TextLabel") or obj:IsA("TextBox") or obj:IsA("TextButton")) and (obj.Text == "Cosmic" or obj.Text == "God") then
+         matchFound = true
+      end
+      
+      if matchFound then
+         foundAny = true
+         print("[Log] Gefundenes Ziel entdeckt: " .. obj.Name .. " (" .. obj.ClassName .. ")")
          
-         for _, model in ipairs(parentObj:GetChildren()) do
-            if not farmingActive then break end
+         -- Ziel-Part ermitteln (entweder das Objekt selbst, wenn es ein BasePart/Model ist, oder das Parent)
+         local targetPart = nil
+         if obj:IsA("BasePart") then
+            targetPart = obj
+         elseif obj:IsA("Model") then
+            targetPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+         elseif obj.Parent and obj.Parent:IsA("Model") then
+            targetPart = obj.Parent.PrimaryPart or obj.Parent:FindFirstChildWhichIsA("BasePart")
+         elseif obj.Parent and obj.Parent:IsA("BasePart") then
+            targetPart = obj.Parent
+         end
+         
+         if targetPart then
+            -- Zum Ziel teleportieren
+            humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+            task.wait(0.2) -- Kurzer Stopp zum Laden
             
-            if model:IsA("Model") then
-               local targetPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-               
-               if targetPart then
-                  print("[Log] Gefunden (" .. parentObj.Name .. "), hole Item...")
-                  
-                  -- Zum Modell teleportieren, um den Prompt auszulösen
-                  humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-                  
-                  -- ProximityPrompt suchen und sofort feuern
-                  for _, descendant in ipairs(model:GetDescendants()) do
-                     if descendant:IsA("ProximityPrompt") then
-                        pcall(function()
-                           fireproximityprompt(descendant)
-                           print("[Log] ProximityPrompt erfolgreich ausgelöst!")
-                        end)
-                     end
+            -- ProximityPrompt im selben Objekt oder dessen Elternteil suchen und auslösen
+            local function checkAndFirePrompts(container)
+               for _, descendant in ipairs(container:GetDescendants()) do
+                  if descendant:IsA("ProximityPrompt") then
+                     pcall(function()
+                        fireproximityprompt(descendant)
+                        print("[Log] ProximityPrompt erfolgreich ausgelöst!")
+                     end)
                   end
-                  
-                  -- Nach dem Einsammeln sofort zurück zur Ursprungskoordinate (pos)
-                  humanoidRootPart.CFrame = CFrame.new(pos)
-                  task.wait(0.05)
                end
             end
+            
+            checkAndFirePrompts(obj)
+            if obj.Parent then
+               checkAndFirePrompts(obj.Parent)
+            end
+            
+            -- Nach dem Einsammeln kurz warten und zurück zur Startposition
+            task.wait(0.2)
+            humanoidRootPart.CFrame = CFrame.new(pos)
+            task.wait(0.2)
          end
       end
-      return true
    end
    
-   return false
+   return foundAny
 end
 
 -- Die Hauptschleife steuert den genauen Ablauf
@@ -102,18 +113,19 @@ task.spawn(function()
    while true do
       if farmingActive and humanoidRootPart then
          
-         -- SCHRITT 1: Zu Koordinate 1 teleportieren und dort suchen/einsammeln
+         -- SCHRITT 1: Zu Koordinate 1 teleportieren und dort suchen
          print("[Log] Gehe zu Koordinate 1: (25, 13, 6136)")
          searchAndFarmAtPosition(POS_1)
          
          if not farmingActive then break end
+         task.wait(0.5)
          
-         -- SCHRITT 2: Zu Koordinate 2 teleportieren und dort suchen/einsammeln
+         -- SCHRITT 2: Zu Koordinate 2 teleportieren und dort suchen
          print("[Log] Gehe zu Koordinate 2: (37, 9, 10002)")
          searchAndFarmAtPosition(POS_2)
          
       end
-      task.wait(0.1)
+      task.wait(0.5)
    end
 end)
 
