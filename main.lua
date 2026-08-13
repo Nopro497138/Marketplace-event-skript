@@ -30,30 +30,38 @@ task.spawn(function()
       if farmingActive then
          local itemSpawners = workspace:FindFirstChild("ItemSpawners")
          if itemSpawners then
-            for _, model in ipairs(itemSpawners:GetChildren()) do
+            for _, parentObj in ipairs(itemSpawners:GetChildren()) do
                if not farmingActive then break end
                
-               if model:IsA("Model") and (model.Name == "Cosmic" or model.Name == "God") then
-                  local targetPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-                  
-                  if targetPart and humanoidRootPart then
-                     -- 1. Zum Modell teleportieren
-                     humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+               -- Prüfen ob der Parent (Ordner/Modell) "Cosmic" oder "God" heißt
+               if parentObj.Name == "Cosmic" or parentObj.Name == "God" then
+                  -- Durchsuche alle Modelle innerhalb dieses Parents
+                  for _, model in ipairs(parentObj:GetChildren()) do
+                     if not farmingActive then break end
                      
-                     -- 2. Überall im Modell nach ProximityPrompts suchen und sofort auslösen
-                     for _, descendant in ipairs(model:GetDescendants()) do
-                        if descendant:IsA("ProximityPrompt") then
-                           pcall(function()
-                              fireproximityprompt(descendant)
-                           end)
+                     if model:IsA("Model") then
+                        local targetPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+                        
+                        if targetPart and humanoidRootPart then
+                           -- 1. Zum Modell im Parent teleportieren
+                           humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+                           
+                           -- 2. Überall im Modell nach ProximityPrompts suchen und sofort auslösen
+                           for _, descendant in ipairs(model:GetDescendants()) do
+                              if descendant:IsA("ProximityPrompt") then
+                                 pcall(function()
+                                    fireproximityprompt(descendant)
+                                 end)
+                              end
+                           end
+                           
+                           -- 3. Zu den Zielkoordinaten teleportieren
+                           humanoidRootPart.CFrame = CFrame.new(-170, 4, -116)
+                           
+                           -- Extrem kurzes Yield für maximale Geschwindigkeit
+                           task.wait()
                         end
                      end
-                     
-                     -- 3. Zu den Zielkoordinaten teleportieren
-                     humanoidRootPart.CFrame = CFrame.new(-170, 4, -116)
-                     
-                     -- Extrem kurzes Yield für maximale Geschwindigkeit ohne Crash
-                     task.wait()
                   end
                end
             end
