@@ -1,94 +1,110 @@
--- Rayfield sicher laden mit Fehlerbehandlung
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end)
+-- Rayfield UI laden
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-if not success or not Rayfield then
-    warn("Rayfield konnte nicht geladen werden! Überprüfe deine Internetverbindung oder den Executor.")
-    return
-end
+local Window = Rayfield:CreateWindow({
+   Name = "Workspace Model Highlighter",
+   LoadingTitle = "Delta Script",
+   LoadingSubtitle = "by AI",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
 
-local MarketplaceService = game:GetService("MarketplaceService")
+local Tab = Window:CreateTab("Main", 4483362458)
+
+-- Services
+local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Speicherung für geloggte Käufe/Prompts
-local purchaseLogs = {}
+-- Status Label im Rayfield UI
+local StatusLabel = Tab:CreateLabel("Status: Bereit (Drücke Left CTRL)")
 
--- Rayfield Fenster erstellen
-local Window = Rayfield:CreateWindow({
-   Name = "Delta Purchase Logger",
-   LoadingTitle = "Client Überwachung",
-   LoadingSubtitle = "by Assistant",
-   ConfigurationSaving = { Enabled = false },
-   KeySystem = false,
-})
-
-local LogTab = Window:CreateTab("Logs", 4483362458)
-local LogSection = LogTab:CreateSection("Kauf-Historie")
-
--- Paragraph für die Logs
-local LogDisplay = LogTab:CreateParagraph({
-   Title = "Bisherige Prompts & Käufe",
-   Content = "Noch keine Käufe oder Prompts erkannt."
-})
-
--- Funktion zum Aktualisieren der UI-Anzeige
-local function updateLogDisplay()
-   if #purchaseLogs == 0 then
-      LogDisplay:Set({Title = "Bisherige Prompts & Käufe", Content = "Noch keine Käufe oder Prompts erkannt."})
-      return
-   end
-   
-   local text = ""
-   for i, log in ipairs(purchaseLogs) do
-      text = string.format("[%s] Typ: %s | ID: %s | Status: %s\n", log.Time, log.Type, tostring(log.Id), log.Status) .. text
-   end
-   
-   LogDisplay:Set({Title = "Bisherige Prompts & Käufe (" .. #purchaseLogs .. ")", Content = text})
+-- Funktion zum Markieren von direkten Workspace Models
+local function highlightWorkspaceModels()
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") and obj ~= LocalPlayer.Character then
+            -- Prüfen ob bereits ein Highlight existiert
+            if not obj:FindFirstChildOfClass("Highlight") then
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Color3.fromRGB(0, 255, 0)
+                highlight.OutlineColor = Color3.fromRGB(0, 255, 0)
+                highlight.FillTransparency = 0.5
+                highlight.OutlineTransparency = 0
+                highlight.Adornee = obj
+                highlight.Parent = obj
+            end
+        end
+    end
 end
 
--- Funktion zum Hinzufügen eines Logs
-local function addLog(pType, pId, status)
-   table.insert(purchaseLogs, {
-      Type = pType,
-      Id = pId,
-      Status = status,
-      Time = os.date("%H:%M:%S")
-   })
-   updateLogDisplay()
+-- Initial ausführen und auf neue Workspace-Kinder lauschen
+highlightWorkspaceModels()
+Workspace.ChildAdded:Connect(function(child)
+    if child:IsA("Model") then
+        task.wait(0.1)
+        highlightWorkspaceModels()
+    end
+end)
+
+-- Nächstes direktes Workspace Model finden
+local function getClosestModel()
+    local closest = nil
+    local shortestDistance = math.huge
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not rootPart then return nil end
+
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") and obj ~= character then
+            local targetPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+            if targetPart then
+                local distance = (targetPart.Position - rootPart.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closest = obj
+                end
+            end
+        end
+    end
+    
+    return closest
 end
 
--- Überwachung für Produkt-Käufe
-if MarketplaceService.PromptProductPurchaseFinished then
-   MarketplaceService.PromptProductPurchaseFinished:Connect(function(player, productId, wasPurchased)
-      if player == LocalPlayer then
-         addLog("Developer Product", productId, wasPurchased and "Gekauft" or "Abgebrochen")
-      end
-   end)
-end
+-- Keybind Logik für Left CTRL
+local isExecuting = false
 
--- Überwachung für Gamepass-Käufe
-if MarketplaceService.PromptGamePassPurchaseFinished then
-   MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
-      if player == LocalPlayer then
-         addLog("GamePass", gamePassId, wasPurchased and "Gekauft" or "Abgebrochen")
-      end
-   end)
-end
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.LeftControl and not isExecuting then
+        isExecuting = true
+        StatusLabel:Set("Status: Ziel anvisieren...")
+        
+        local target = getClosestModel()
+        if target then
+            local targetPart = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChildWhichIsA("BasePart")
+            if targetPart and Camera then
+                -- Direkt auf das Model aimen
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+                
+                -- 10 mal klicken mit 1 Sekunde Pause dazwischen
+                for i = 1, 10 do
+                    StatusLabel:Set("Status: Klick " .. i .. "/10")
+                    pcall(function()
+                        mouse1click()
+                    end)
+                    task.wait(1)
+                end
+            end
+        else
+            StatusLabel:Set("Status: Kein Ziel gefunden!")
+            task.wait(1)
+        end
+        
+        StatusLabel:Set("Status: Bereit (Drücke Left CTRL)")
+        isExecuting = false
+    end
+end)
 
--- Control Buttons
-LogTab:CreateButton({
-   Name = "Logs leeren",
-   Callback = function()
-      purchaseLogs = {}
-      updateLogDisplay()
-      Rayfield:Notify({Title = "Gelöscht", Content = "Die Log-Liste wurde geleert.", Duration = 2})
-   end,
-})
-
-Rayfield:Notify({
-   Title = "Delta Logger Aktiv",
-   Content = "Überwache Produkt- und Gamepass-Prompts...",
-   Duration = 3,
-})
+Rayfield:LoadConfiguration()
