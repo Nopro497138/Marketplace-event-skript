@@ -18,24 +18,25 @@ local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Koordinaten als Konstanten definiert
+-- Ziel- und Zwischenkoordinaten
 local POS_1 = Vector3.new(25, 13, 6136)
 local POS_2 = Vector3.new(37, 9, 10002)
+local HOME_POS = Vector3.new(-170, 4, -116) -- Die Rückkehr-Koordinate nach dem Aufnehmen
 
--- Aktualisiere Character-Referenzen, falls der Spieler stirbt
+-- Character-Referenzen erneuern, falls der Spieler stirbt
 player.CharacterAdded:Connect(function(newChar)
    character = newChar
    humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
    print("[Log] Character neu geladen.")
 end)
 
--- Funktion, die nur nach Modellen sucht und diese abfarmt
+-- Funktion für das Suchen, Einsammeln und den Teleport zu HOME_POS
 local function searchAndFarmAtPosition(pos)
    if not farmingActive or not humanoidRootPart then return false end
    
-   -- 1. Zu den Start-Koordinaten teleportieren
+   -- 1. Zur Checkpoint-Koordinate teleportieren
    humanoidRootPart.CFrame = CFrame.new(pos)
-   task.wait(2.0) -- Erhöhter Cooldown nach dem Teleport zur Koordinate
+   task.wait(1.5) -- Warten, damit der Client die Umgebung an dieser Position laden kann
    
    local itemSpawners = workspace:FindFirstChild("ItemSpawners")
    if not itemSpawners then
@@ -45,14 +46,13 @@ local function searchAndFarmAtPosition(pos)
    
    local foundAny = false
    
-   -- Durchsuchung des gesamten Ordners nach Modellen
+   -- Durchsuche den Ordner explizit nach Modellen unter Cosmic/God
    for _, obj in ipairs(itemSpawners:GetDescendants()) do
       if not farmingActive then break end
       
-      -- WICHTIG: Wir prüfen jetzt NUR noch nach Modellen, deren Name "Cosmic" oder "God" ist 
-      -- (oder deren Elternteil so heißt, falls das Modell selbst so benannt ist)
       local isTargetModel = false
       
+      -- Es MUSS ein Modell sein und der Name oder der des Parents ist "Cosmic" oder "God"
       if obj:IsA("Model") then
          if obj.Name == "Cosmic" or obj.Name == "God" then
             isTargetModel = true
@@ -63,40 +63,36 @@ local function searchAndFarmAtPosition(pos)
       
       if isTargetModel then
          foundAny = true
-         print("[Log] Ziel-Modell entdeckt: " .. tostring(obj.Name))
+         print("[Log] Ziel-Modell gefunden: " .. tostring(obj.Name))
          
-         -- Exakte Bestimmung des Parts NUR im Modell
+         -- Exaktes Part im Modell holen
          local targetPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
          
          if targetPart then
-            -- Zum Modell teleportieren
+            -- A) Zum Modell teleportieren
             humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-            task.wait(1.2) -- Erhöhter Cooldown vor dem Auslösen des Prompts
+            task.wait(0.8)
             
-            -- ProximityPrompt im Modell suchen und auslösen
-            local promptFound = false
+            -- B) ProximityPrompt suchen und auslösen
             for _, descendant in ipairs(obj:GetDescendants()) do
                if descendant:IsA("ProximityPrompt") then
-                  promptFound = true
                   pcall(function()
                      fireproximityprompt(descendant)
-                     print("[Log] ProximityPrompt ausgelöst für Modell: " .. tostring(obj.Name))
+                     print("[Log] ProximityPrompt ausgelöst!")
                   end)
                end
             end
             
-            if not promptFound then
-               print("[Log] Kein ProximityPrompt in diesem Modell gefunden.")
-            end
+            task.wait(0.8)
             
-            task.wait(1.2) -- Erhöhter Cooldown nach dem Auslösen
+            -- C) Teleport zu -170, 4, -116
+            print("[Log] Teleportiere zur Ziel-Koordinate (-170, 4, -116)...")
+            humanoidRootPart.CFrame = CFrame.new(HOME_POS)
             
-            -- Zurück zur alten Koordinate
-            humanoidRootPart.CFrame = CFrame.new(pos)
-            print("[Log] Zurück zur Koordinate, warte 2.5 Sekunden...")
-            task.wait(2.5) -- Erhöhte Pause an der alten Koordinate wie gewünscht
+            -- D) 1 Sekunde Pause an der Ziel-Koordinate
+            task.wait(1.0)
          else
-            print("[Log] Modell hat kein gültiges BasePart/PrimaryPart: " .. tostring(obj.Name))
+            print("[Log] Modell hat kein gültiges BasePart: " .. tostring(obj.Name))
          end
       end
    end
@@ -104,33 +100,33 @@ local function searchAndFarmAtPosition(pos)
    return foundAny
 end
 
--- Die Hauptschleife mit deutlich mehr Cooldown
+-- Hauptschleife
 task.spawn(function()
    while true do
       if farmingActive and humanoidRootPart then
          
-         -- SCHRITT 1: Koordinate 1
-         print("[Log] Gehe zu Koordinate 1: (25, 13, 6136)")
+         -- SCHRITT 1: Erste Koordinate (25, 13, 6136)
+         print("[Log] Anfahrt Koordinate 1: (25, 13, 6136)")
          searchAndFarmAtPosition(POS_1)
          
          if not farmingActive then break end
-         task.wait(1.5) -- Cooldown zwischen den Positionen
+         task.wait(1.0)
          
-         -- SCHRITT 2: Koordinate 2
-         print("[Log] Gehe zu Koordinate 2: (37, 9, 10002)")
+         -- SCHRITT 2: Zweite Koordinate (37, 9, 10002)
+         print("[Log] Anfahrt Koordinate 2: (37, 9, 10002)")
          searchAndFarmAtPosition(POS_2)
          
          if not farmingActive then break end
-         task.wait(1.5) -- Cooldown vor dem Wiederholen der Schleife
+         task.wait(1.0)
          
       end
-      task.wait(1.5)
+      task.wait(1.0)
    end
 end)
 
--- Toggle in Rayfield erstellen
+-- Toggle in Rayfield UI
 Tab:CreateToggle({
-   Name = "Auto Farm Routen-Modus (Langsam & Sicher)",
+   Name = "Auto Farm (Inkl. Home Teleport)",
    CurrentValue = false,
    Flag = "AutoFarmToggle",
    Callback = function(Value)
