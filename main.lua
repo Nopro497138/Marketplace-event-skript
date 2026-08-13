@@ -20,11 +20,13 @@ local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- Status Label im Rayfield UI
-local StatusLabel = Tab:CreateLabel("Status: Bereit (Drücke Left CTRL)")
+local StatusLabel = Tab:CreateLabel("Status: Bereit (Left CTRL / Right CTRL)")
 
--- Variablen für die Target-Funktion
+-- Variablen für die Target-Funktion & Unsichtbarkeit
 local targetPlayerName = ""
 local followTargetEnabled = false
+local isInvisibleUnderground = false
+local savedCharacterParts = {}
 
 -- Rayfield UI Elemente
 Tab:CreateInput({
@@ -45,7 +47,7 @@ Tab:CreateToggle({
       if value then
          StatusLabel:Set("Status: Folge " .. (targetPlayerName ~= "" and targetPlayerName or "Niemand") .. "...")
       else
-         StatusLabel:Set("Status: Bereit (Drücke Left CTRL)")
+         StatusLabel:Set("Status: Bereit")
       end
    end,
 })
@@ -58,7 +60,6 @@ RunService.RenderStepped:Connect(function()
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
     
-    -- Finde den Spieler anhand des Namens (auch Teilnamen funktionieren)
     local targetChar = nil
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Name:lower():sub(1, #targetPlayerName) == targetPlayerName:lower() then
@@ -71,7 +72,6 @@ RunService.RenderStepped:Connect(function()
     
     if targetChar then
         local targetRoot = targetChar.HumanoidRootPart
-        -- Setze den Charakter direkt vor das Target (z.B. 3 Studs vor dessen Blickrichtung)
         rootPart.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -3)
     end
 end)
@@ -80,7 +80,6 @@ end)
 local function highlightWorkspaceModels()
     for _, obj in ipairs(Workspace:GetChildren()) do
         if obj:IsA("Model") and obj ~= LocalPlayer.Character then
-            -- Prüfen ob bereits ein Highlight existiert
             if not obj:FindFirstChildOfClass("Highlight") then
                 local highlight = Instance.new("Highlight")
                 highlight.FillColor = Color3.fromRGB(0, 255, 0)
@@ -94,7 +93,6 @@ local function highlightWorkspaceModels()
     end
 end
 
--- Initial ausführen und auf neue Workspace-Kinder lauschen
 highlightWorkspaceModels()
 Workspace.ChildAdded:Connect(function(child)
     if child:IsA("Model") then
@@ -128,10 +126,11 @@ local function getClosestModel()
     return closest
 end
 
--- Keybind Logik für Left CTRL
+-- Keybind Logik für Left CTRL & Right CTRL
 local isExecuting = false
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- Left CTRL: Aim und 5 Klicks mit 0.3s Cooldown
     if input.KeyCode == Enum.KeyCode.LeftControl and not isExecuting then
         isExecuting = true
         StatusLabel:Set("Status: Ziel anvisieren...")
@@ -140,16 +139,14 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if target then
             local targetPart = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChildWhichIsA("BasePart")
             if targetPart and Camera then
-                -- Direkt auf das Model aimen
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
                 
-                -- 5 mal klicken mit 0.5 Sekunden Pause dazwischen
                 for i = 1, 5 do
                     StatusLabel:Set("Status: Klick " .. i .. "/5")
                     pcall(function()
                         mouse1click()
                     end)
-                    task.wait(0.5)
+                    task.wait(0.3)
                 end
             end
         else
@@ -158,9 +155,44 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
         
         if not followTargetEnabled then
-            StatusLabel:Set("Status: Bereit (Drücke Left CTRL)")
+            StatusLabel:Set("Status: Bereit")
         end
         isExecuting = false
+        
+    -- Right CTRL: Unsichtbar machen & 10 Studs runter (bzw. wieder zurück)
+    elseif input.KeyCode == Enum.KeyCode.RightControl then
+        local character = LocalPlayer.Character
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if character and rootPart then
+            isInvisibleUnderground = not isInvisibleUnderground
+            
+            if isInvisibleUnderground then
+                StatusLabel:Set("Status: Unsichtbar & Getaucht")
+                -- 10 Studs nach unten teleportieren
+                rootPart.CFrame = rootPart.CFrame + Vector3.new(0, -10, 0)
+                
+                -- Unsichtbar machen (Transparenz auf 1 für alle Teile)
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") or part:IsA("Decal") then
+                        savedCharacterParts[part] = part.Transparency
+                        part.Transparency = 1
+                    end
+                end
+            else
+                StatusLabel:Set("Status: Sichtbar & Zurück")
+                -- 10 Studs nach oben zurückteleportieren
+                rootPart.CFrame = rootPart.CFrame + Vector3.new(0, 10, 0)
+                
+                -- Wieder sichtbar machen
+                for part, originalTransparency in pairs(savedCharacterParts) do
+                    if part and part.Parent then
+                        part.Transparency = originalTransparency
+                    end
+                end
+                savedCharacterParts = {}
+            end
+        end
     end
 end)
 
