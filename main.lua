@@ -29,13 +29,13 @@ player.CharacterAdded:Connect(function(newChar)
    print("[Log] Character neu geladen.")
 end)
 
--- Funktion, die den gesamten Ordner nach "Cosmic" oder "God" durchsucht (inkl. TextObjekte, Properties etc.)
+-- Funktion, die den Ordner durchsucht, das Modell einsammelt, zurückkehrt und 1 Sekunde wartet
 local function searchAndFarmAtPosition(pos)
    if not farmingActive or not humanoidRootPart then return false end
    
    -- 1. Zu den Koordinaten teleportieren
    humanoidRootPart.CFrame = CFrame.new(pos)
-   task.wait(0.4) -- Etwas langsamer gemacht, damit der Server/Client die Objekte laden kann
+   task.wait(0.5) -- Cooldown nach dem Teleport
    
    local itemSpawners = workspace:FindFirstChild("ItemSpawners")
    if not itemSpawners then
@@ -45,25 +45,23 @@ local function searchAndFarmAtPosition(pos)
    
    local foundAny = false
    
-   -- Rekursive Durchsuchung des gesamten Ordners nach Namen oder Text-Properties
+   -- Durchsuchung des Ordners nach Namen oder Text-Properties
    for _, obj in ipairs(itemSpawners:GetDescendants()) do
       if not farmingActive then break end
       
       local matchFound = false
       
-      -- Prüfen, ob der Name "Cosmic" oder "God" ist
       if obj.Name == "Cosmic" or obj.Name == "God" then
          matchFound = true
-      -- Alternativ prüfen, ob es ein Text-Objekt ist (z.B. TextLabel / Textbox) und der Text passt
       elseif (obj:IsA("TextLabel") or obj:IsA("TextBox") or obj:IsA("TextButton")) and (obj.Text == "Cosmic" or obj.Text == "God") then
          matchFound = true
       end
       
       if matchFound then
          foundAny = true
-         print("[Log] Gefundenes Ziel entdeckt: " .. obj.Name .. " (" .. obj.ClassName .. ")")
+         print("[Log] Ziel entdeckt: " + tostring(obj.Name))
          
-         -- Ziel-Part ermitteln (entweder das Objekt selbst, wenn es ein BasePart/Model ist, oder das Parent)
+         -- Ziel-Part ermitteln
          local targetPart = nil
          if obj:IsA("BasePart") then
             targetPart = obj
@@ -78,15 +76,15 @@ local function searchAndFarmAtPosition(pos)
          if targetPart then
             -- Zum Ziel teleportieren
             humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-            task.wait(0.2) -- Kurzer Stopp zum Laden
+            task.wait(0.3) -- Cooldown vor dem Interagieren
             
-            -- ProximityPrompt im selben Objekt oder dessen Elternteil suchen und auslösen
+            -- ProximityPrompt suchen und auslösen
             local function checkAndFirePrompts(container)
                for _, descendant in ipairs(container:GetDescendants()) do
                   if descendant:IsA("ProximityPrompt") then
                      pcall(function()
                         fireproximityprompt(descendant)
-                        print("[Log] ProximityPrompt erfolgreich ausgelöst!")
+                        print("[Log] ProximityPrompt ausgelöst!")
                      end)
                   end
                end
@@ -97,10 +95,10 @@ local function searchAndFarmAtPosition(pos)
                checkAndFirePrompts(obj.Parent)
             end
             
-            -- Nach dem Einsammeln kurz warten und zurück zur Startposition
-            task.wait(0.2)
+            -- SOFORT nach dem Aufnehmen zurück zur alten Koordinate
             humanoidRootPart.CFrame = CFrame.new(pos)
-            task.wait(0.2)
+            print("[Log] Zurück zur Koordinate, warte 1 Sekunde...")
+            task.wait(1.0) -- Exakt 1 Sekunde Pause hier wie gewünscht
          end
       end
    end
@@ -108,21 +106,24 @@ local function searchAndFarmAtPosition(pos)
    return foundAny
 end
 
--- Die Hauptschleife steuert den genauen Ablauf
+-- Die Hauptschleife steuert den Ablauf mit Cooldowns
 task.spawn(function()
    while true do
       if farmingActive and humanoidRootPart then
          
-         -- SCHRITT 1: Zu Koordinate 1 teleportieren und dort suchen
+         -- SCHRITT 1: Koordinate 1
          print("[Log] Gehe zu Koordinate 1: (25, 13, 6136)")
          searchAndFarmAtPosition(POS_1)
          
          if not farmingActive then break end
-         task.wait(0.5)
+         task.wait(0.5) -- Cooldown zwischen den Positionen
          
-         -- SCHRITT 2: Zu Koordinate 2 teleportieren und dort suchen
+         -- SCHRITT 2: Koordinate 2
          print("[Log] Gehe zu Koordinate 2: (37, 9, 10002)")
          searchAndFarmAtPosition(POS_2)
+         
+         if not farmingActive then break end
+         task.wait(0.5) -- Cooldown vor dem Wiederholen
          
       end
       task.wait(0.5)
