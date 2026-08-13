@@ -3,7 +3,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
    Name = "Delta | Visuals & Combat",
    LoadingTitle = "Lade Skript...",
-   LoadingSubtitle = "ESP & Aimbot System",
+   LoadingSubtitle = "Keybind Customization",
    ConfigurationSaving = { Enabled = false },
    Discord = { Enabled = false },
    KeySystem = false
@@ -23,17 +23,18 @@ local Settings = {
         Enabled = false,
         ShowNames = true,
         ShowDistance = true,
-        HighlightColor = Color3.fromRGB(0, 255, 0), -- Standard: Grün
-        TextColor = Color3.fromRGB(255, 255, 255)   -- Standard: Weiß
+        HighlightColor = Color3.fromRGB(0, 255, 0),
+        TextColor = Color3.fromRGB(255, 255, 255)
     },
     Aimbot = {
         Enabled = false,
-        Smoothness = 0.2, -- 0 = sofortiger Lock, höher = geschmeidiger
-        TargetPart = "Head"
+        Smoothness = 0.2,
+        TargetPart = "Head",
+        Keybind = Enum.KeyCode.LeftAlt -- Standard Keybind
     }
 }
 
--- Tabs erstellen
+-- Tabs
 local VisualsTab = Window:CreateTab("Visuals (ESP)", 4483362458)
 local CombatTab = Window:CreateTab("Combat (Aimbot)", 4483362458)
 
@@ -100,7 +101,7 @@ local function applyESP(player, character)
             
             if Settings.ESP.ShowDistance and myRoot and targetRoot then
                 local studs = (targetRoot.Position - myRoot.Position).Magnitude
-                local meters = math.floor(studs * 0.28) -- 1 Stud ~= 0.28 Meter
+                local meters = math.floor(studs * 0.28)
                 table.insert(textParts, string.format("[%dm]", meters))
             end
             
@@ -154,11 +155,11 @@ local function getClosestPlayer()
 end
 
 ---------------------------------------------------------
--- MAIN RENDER LOOP
+-- RENDER BINDINGS
 ---------------------------------------------------------
 
+-- ESP Loop
 RunService.RenderStepped:Connect(function()
-    -- ESP Aktualisierung
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             if Settings.ESP.Enabled then
@@ -168,17 +169,21 @@ RunService.RenderStepped:Connect(function()
             end
         end
     end
-    
-    -- Aimbot Ausführung (Nur LINKS-ALT gedrückt halten)
-    if Settings.Aimbot.Enabled then
-        local isLeftAltPressed = UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt)
-        if isLeftAltPressed then
+end)
+
+-- First-Person Aimbot Binding
+RunService:BindToRenderStep("FirstPersonAimbot", Enum.RenderPriority.Camera.Value + 1, function()
+    if Settings.Aimbot.Enabled and Settings.Aimbot.Keybind then
+        -- Prüfe, ob die im Keybind eingestellte Taste gedrückt gehalten wird
+        local isKeyPressed = UserInputService:IsKeyDown(Settings.Aimbot.Keybind)
+        if isKeyPressed then
             local targetPlayer = getClosestPlayer()
             if targetPlayer and targetPlayer.Character then
                 local targetPart = targetPlayer.Character:FindFirstChild(Settings.Aimbot.TargetPart)
                 if targetPart then
                     local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
-                    if Settings.Aimbot.Smoothness > 0 then
+                    
+                    if Settings.Aimbot.Smoothness > 0 and Settings.Aimbot.Smoothness < 1 then
                         Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Settings.Aimbot.Smoothness)
                     else
                         Camera.CFrame = targetCFrame
@@ -256,6 +261,17 @@ CombatTab:CreateToggle({
    end,
 })
 
+CombatTab:CreateKeybind({
+   Name = "Aimbot Hold Keybind",
+   CurrentKeybind = "LeftAlt",
+   HoldToInteract = true,
+   Flag = "AimbotKeybind",
+   Callback = function(Keybind)
+      -- Speichert den ausgewählten Keycode dynamisch ab
+      Settings.Aimbot.Keybind = Enum.KeyCode[Keybind] or Enum.KeyCode.LeftAlt
+   end,
+})
+
 CombatTab:CreateSlider({
    Name = "Aimbot Smoothness (Sanftheit)",
    Range = {0.05, 1},
@@ -280,7 +296,7 @@ CombatTab:CreateDropdown({
 
 Rayfield:Notify({
    Title = "Script Geladen!",
-   Content = "ESP & Left-ALT Aimbot sind aktiv.",
+   Content = "Keybinds sind jetzt im Combat-Tab anpassbar.",
    Duration = 3,
    Image = 4483362458,
 })
