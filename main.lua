@@ -18,83 +18,108 @@ local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Aktualisiere Character-Referenzen falls der Spieler stirbt
+-- Koordinaten als Konstanten definiert
+local POS_1 = Vector3.new(25, 13, 6136)
+local POS_2 = Vector3.new(37, 9, 10002)
+
+-- Aktualisiere Character-Referenzen, falls der Spieler stirbt
 player.CharacterAdded:Connect(function(newChar)
    character = newChar
    humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
    print("[Log] Character neu geladen.")
 end)
 
--- Die Hauptschleife für den schnellen Ablauf
-task.spawn(function()
-   while true do
-      if farmingActive then
-         local itemSpawners = workspace:FindFirstChild("ItemSpawners")
-         if itemSpawners then
-            local foundAny = false
-            for _, parentObj in ipairs(itemSpawners:GetChildren()) do
-               if not farmingActive then break end
-               
-               -- Prüfen ob der Parent (Ordner/Modell) "Cosmic" oder "God" heißt
-               if parentObj.Name == "Cosmic" or parentObj.Name == "God" then
-                  foundAny = true
-                  -- Durchsuche alle Modelle innerhalb dieses Parents
-                  for _, model in ipairs(parentObj:GetChildren()) do
-                     if not farmingActive then break end
-                     
-                     if model:IsA("Model") then
-                        local targetPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-                        
-                        if targetPart and humanoidRootPart then
-                           print("[Log] Teleportiere zu Modell in Parent: " .. parentObj.Name)
-                           -- 1. Zum Modell im Parent teleportieren
-                           humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-                           
-                           -- 2. Überall im Modell nach ProximityPrompts suchen und sofort auslösen
-                           local promptFound = false
-                           for _, descendant in ipairs(model:GetDescendants()) do
-                              if descendant:IsA("ProximityPrompt") then
-                                 promptFound = true
-                                 pcall(function()
-                                    fireproximityprompt(descendant)
-                                    print("[Log] ProximityPrompt ausgelöst!")
-                                 end)
-                              end
-                           end
-                           
-                           if not promptFound then
-                              print("[Log] Kein ProximityPrompt in diesem Modell gefunden.")
-                           end
-                           
-                           -- 3. Zu den Zielkoordinaten teleportieren
-                           print("[Log] Teleportiere zu Zielkoordinaten (-170, 4, -116)")
-                           humanoidRootPart.CFrame = CFrame.new(-170, 4, -116)
-                           
-                           task.wait()
-                        else
-                           print("[Log] Modell hat kein gültiges BasePart/PrimaryPart: " .. model.Name)
-                        end
-                     end
-                  end
-               end
-            end
-            if not foundAny then
-               -- Gibt alle 2 Sekunden eine Info aus, falls keine passenden Parents gefunden werden
-               print("[Log] Wache: Keine 'Cosmic' oder 'God' Ordner in workspace.ItemSpawners gefunden.")
-               task.wait(2)
-            end
-         else
-            print("[Log] Fehler: workspace.ItemSpawners nicht gefunden!")
-            task.wait(2)
+-- Funktion, die an einer bestimmten Position nach "Cosmic" / "God" (bzw. Fallback) sucht und einsammelt
+local function searchAndFarmAtPosition(pos)
+   if not farmingActive or not humanoidRootPart then return false end
+   
+   -- 1. Zu den Koordinaten teleportieren
+   humanoidRootPart.CFrame = CFrame.new(pos)
+   task.wait(0.15) -- Minimaler Yield, damit der Client/Server die Position und geladene Objekte verarbeitet
+   
+   local itemSpawners = workspace:FindFirstChild("ItemSpawners")
+   if not itemSpawners then return false end
+   
+   local targetParents = {}
+   
+   -- Suche nach "Cosmic" oder "God"
+   for _, child in ipairs(itemSpawners:GetChildren()) do
+      if child.Name == "Cosmic" or child.Name == "God" then
+         table.insert(targetParents, child)
+      end
+   end
+   
+   -- Fallback auf "Legendary" und "Epic", falls nichts da ist
+   if #targetParents == 0 then
+      for _, child in ipairs(itemSpawners:GetChildren()) do
+         if child.Name == "Legendary" or child.Name == "Epic" then
+            table.insert(targetParents, child)
          end
       end
-      task.wait(0.05)
+   end
+   
+   if #targetParents > 0 then
+      for _, parentObj in ipairs(targetParents) do
+         if not farmingActive then break end
+         
+         for _, model in ipairs(parentObj:GetChildren()) do
+            if not farmingActive then break end
+            
+            if model:IsA("Model") then
+               local targetPart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+               
+               if targetPart then
+                  print("[Log] Gefunden (" .. parentObj.Name .. "), hole Item...")
+                  
+                  -- Zum Modell teleportieren, um den Prompt auszulösen
+                  humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+                  
+                  -- ProximityPrompt suchen und sofort feuern
+                  for _, descendant in ipairs(model:GetDescendants()) do
+                     if descendant:IsA("ProximityPrompt") then
+                        pcall(function()
+                           fireproximityprompt(descendant)
+                           print("[Log] ProximityPrompt erfolgreich ausgelöst!")
+                        end)
+                     end
+                  end
+                  
+                  -- Nach dem Einsammeln sofort zurück zur Ursprungskoordinate (pos)
+                  humanoidRootPart.CFrame = CFrame.new(pos)
+                  task.wait(0.05)
+               end
+            end
+         end
+      end
+      return true
+   end
+   
+   return false
+end
+
+-- Die Hauptschleife steuert den genauen Ablauf
+task.spawn(function()
+   while true do
+      if farmingActive and humanoidRootPart then
+         
+         -- SCHRITT 1: Zu Koordinate 1 teleportieren und dort suchen/einsammeln
+         print("[Log] Gehe zu Koordinate 1: (25, 13, 6136)")
+         searchAndFarmAtPosition(POS_1)
+         
+         if not farmingActive then break end
+         
+         -- SCHRITT 2: Zu Koordinate 2 teleportieren und dort suchen/einsammeln
+         print("[Log] Gehe zu Koordinate 2: (37, 9, 10002)")
+         searchAndFarmAtPosition(POS_2)
+         
+      end
+      task.wait(0.1)
    end
 end)
 
 -- Toggle in Rayfield erstellen
 Tab:CreateToggle({
-   Name = "Auto Farm (Cosmic / God)",
+   Name = "Auto Farm Routen-Modus",
    CurrentValue = false,
    Flag = "AutoFarmToggle",
    Callback = function(Value)
