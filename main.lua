@@ -29,13 +29,13 @@ player.CharacterAdded:Connect(function(newChar)
    print("[Log] Character neu geladen.")
 end)
 
--- Funktion, die den Ordner durchsucht, das Modell einsammelt, zurückkehrt und wartet
+-- Funktion, die nur nach Modellen sucht und diese abfarmt
 local function searchAndFarmAtPosition(pos)
    if not farmingActive or not humanoidRootPart then return false end
    
-   -- 1. Zu den Koordinaten teleportieren
+   -- 1. Zu den Start-Koordinaten teleportieren
    humanoidRootPart.CFrame = CFrame.new(pos)
-   task.wait(1.5) -- Viel langsamerer Cooldown nach dem Teleport
+   task.wait(2.0) -- Erhöhter Cooldown nach dem Teleport zur Koordinate
    
    local itemSpawners = workspace:FindFirstChild("ItemSpawners")
    if not itemSpawners then
@@ -45,63 +45,58 @@ local function searchAndFarmAtPosition(pos)
    
    local foundAny = false
    
-   -- Durchsuchung des gesamten Ordners
+   -- Durchsuchung des gesamten Ordners nach Modellen
    for _, obj in ipairs(itemSpawners:GetDescendants()) do
       if not farmingActive then break end
       
-      local matchFound = false
+      -- WICHTIG: Wir prüfen jetzt NUR noch nach Modellen, deren Name "Cosmic" oder "God" ist 
+      -- (oder deren Elternteil so heißt, falls das Modell selbst so benannt ist)
+      local isTargetModel = false
       
-      -- Suche nach Namen "Cosmic" oder "God" oder passenden Text-Objekten
-      if obj.Name == "Cosmic" or obj.Name == "God" then
-         matchFound = true
-      elseif (obj:IsA("TextLabel") or obj:IsA("TextBox") or obj:IsA("TextButton")) and (obj.Text == "Cosmic" or obj.Text == "God") then
-         matchFound = true
+      if obj:IsA("Model") then
+         if obj.Name == "Cosmic" or obj.Name == "God" then
+            isTargetModel = true
+         elseif obj.Parent and (obj.Parent.Name == "Cosmic" or obj.Parent.Name == "God") then
+            isTargetModel = true
+         end
       end
       
-      if matchFound then
+      if isTargetModel then
          foundAny = true
-         print("[Log] Ziel entdeckt: " .. tostring(obj.Name))
+         print("[Log] Ziel-Modell entdeckt: " .. tostring(obj.Name))
          
-         -- Ziel-Part ermitteln (Modell oder BasePart)
-         local targetPart = nil
-         if obj:IsA("BasePart") then
-            targetPart = obj
-         elseif obj:IsA("Model") then
-            targetPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-         elseif obj.Parent and obj.Parent:IsA("Model") then
-            targetPart = obj.Parent.PrimaryPart or obj.Parent:FindFirstChildWhichIsA("BasePart")
-         elseif obj.Parent and obj.Parent:IsA("BasePart") then
-            targetPart = obj.Parent
-         end
+         -- Exakte Bestimmung des Parts NUR im Modell
+         local targetPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
          
          if targetPart then
-            -- Zum Ziel teleportieren
+            -- Zum Modell teleportieren
             humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-            task.wait(0.8) -- Langsamerer Cooldown vor dem Interagieren
+            task.wait(1.2) -- Erhöhter Cooldown vor dem Auslösen des Prompts
             
-            -- ProximityPrompt suchen und auslösen
-            local function checkAndFirePrompts(container)
-               for _, descendant in ipairs(container:GetDescendants()) do
-                  if descendant:IsA("ProximityPrompt") then
-                     pcall(function()
-                        fireproximityprompt(descendant)
-                        print("[Log] ProximityPrompt ausgelöst für: " .. tostring(obj.Name))
-                     end)
-                  end
+            -- ProximityPrompt im Modell suchen und auslösen
+            local promptFound = false
+            for _, descendant in ipairs(obj:GetDescendants()) do
+               if descendant:IsA("ProximityPrompt") then
+                  promptFound = true
+                  pcall(function()
+                     fireproximityprompt(descendant)
+                     print("[Log] ProximityPrompt ausgelöst für Modell: " .. tostring(obj.Name))
+                  end)
                end
             end
             
-            checkAndFirePrompts(obj)
-            if obj.Parent then
-               checkAndFirePrompts(obj.Parent)
+            if not promptFound then
+               print("[Log] Kein ProximityPrompt in diesem Modell gefunden.")
             end
             
-            task.wait(0.8) -- Kurz warten nach dem Auslösen
+            task.wait(1.2) -- Erhöhter Cooldown nach dem Auslösen
             
             -- Zurück zur alten Koordinate
             humanoidRootPart.CFrame = CFrame.new(pos)
-            print("[Log] Zurück zur Koordinate, warte 2 Sekunden...")
-            task.wait(2.0) -- 2 Sekunden Pause wie gewünscht
+            print("[Log] Zurück zur Koordinate, warte 2.5 Sekunden...")
+            task.wait(2.5) -- Erhöhte Pause an der alten Koordinate wie gewünscht
+         else
+            print("[Log] Modell hat kein gültiges BasePart/PrimaryPart: " .. tostring(obj.Name))
          end
       end
    end
@@ -109,7 +104,7 @@ local function searchAndFarmAtPosition(pos)
    return foundAny
 end
 
--- Die Hauptschleife steuert den langsamen, sicheren Ablauf
+-- Die Hauptschleife mit deutlich mehr Cooldown
 task.spawn(function()
    while true do
       if farmingActive and humanoidRootPart then
@@ -119,23 +114,23 @@ task.spawn(function()
          searchAndFarmAtPosition(POS_1)
          
          if not farmingActive then break end
-         task.wait(1.0) -- Pause zwischen den Positionen
+         task.wait(1.5) -- Cooldown zwischen den Positionen
          
          -- SCHRITT 2: Koordinate 2
          print("[Log] Gehe zu Koordinate 2: (37, 9, 10002)")
          searchAndFarmAtPosition(POS_2)
          
          if not farmingActive then break end
-         task.wait(1.0) -- Pause vor dem Wiederholen
+         task.wait(1.5) -- Cooldown vor dem Wiederholen der Schleife
          
       end
-      task.wait(1.0)
+      task.wait(1.5)
    end
 end)
 
 -- Toggle in Rayfield erstellen
 Tab:CreateToggle({
-   Name = "Auto Farm Routen-Modus (Langsam)",
+   Name = "Auto Farm Routen-Modus (Langsam & Sicher)",
    CurrentValue = false,
    Flag = "AutoFarmToggle",
    Callback = function(Value)
