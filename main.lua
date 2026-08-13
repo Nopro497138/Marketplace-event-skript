@@ -169,10 +169,10 @@ RunService.RenderStepped:Connect(function()
         end
     end
     
-    -- Aimbot Ausführung (ALT gedrückt halten)
+    -- Aimbot Ausführung (Nur LINKS-ALT gedrückt halten)
     if Settings.Aimbot.Enabled then
-        local isAltPressed = UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) or UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
-        if isAltPressed then
+        local isLeftAltPressed = UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt)
+        if isLeftAltPressed then
             local targetPlayer = getClosestPlayer()
             if targetPlayer and targetPlayer.Character then
                 local targetPart = targetPlayer.Character:FindFirstChild(Settings.Aimbot.TargetPart)
@@ -280,7 +280,7 @@ CombatTab:CreateDropdown({
 
 Rayfield:Notify({
    Title = "Script Geladen!",
-   Content = "ESP & ALT-Aimbot sind einsatzbereit.",
+   Content = "ESP & Left-ALT Aimbot sind aktiv.",
    Duration = 3,
    Image = 4483362458,
 })
