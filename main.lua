@@ -29,13 +29,13 @@ player.CharacterAdded:Connect(function(newChar)
    print("[Log] Character neu geladen.")
 end)
 
--- Funktion, die den Ordner durchsucht, das Modell einsammelt, zurückkehrt und 1 Sekunde wartet
+-- Funktion, die den Ordner durchsucht, das Modell einsammelt, zurückkehrt und wartet
 local function searchAndFarmAtPosition(pos)
    if not farmingActive or not humanoidRootPart then return false end
    
    -- 1. Zu den Koordinaten teleportieren
    humanoidRootPart.CFrame = CFrame.new(pos)
-   task.wait(0.5) -- Cooldown nach dem Teleport
+   task.wait(1.5) -- Viel langsamerer Cooldown nach dem Teleport
    
    local itemSpawners = workspace:FindFirstChild("ItemSpawners")
    if not itemSpawners then
@@ -45,12 +45,13 @@ local function searchAndFarmAtPosition(pos)
    
    local foundAny = false
    
-   -- Durchsuchung des Ordners nach Namen oder Text-Properties
+   -- Durchsuchung des gesamten Ordners
    for _, obj in ipairs(itemSpawners:GetDescendants()) do
       if not farmingActive then break end
       
       local matchFound = false
       
+      -- Suche nach Namen "Cosmic" oder "God" oder passenden Text-Objekten
       if obj.Name == "Cosmic" or obj.Name == "God" then
          matchFound = true
       elseif (obj:IsA("TextLabel") or obj:IsA("TextBox") or obj:IsA("TextButton")) and (obj.Text == "Cosmic" or obj.Text == "God") then
@@ -59,9 +60,9 @@ local function searchAndFarmAtPosition(pos)
       
       if matchFound then
          foundAny = true
-         print("[Log] Ziel entdeckt: " + tostring(obj.Name))
+         print("[Log] Ziel entdeckt: " .. tostring(obj.Name))
          
-         -- Ziel-Part ermitteln
+         -- Ziel-Part ermitteln (Modell oder BasePart)
          local targetPart = nil
          if obj:IsA("BasePart") then
             targetPart = obj
@@ -76,7 +77,7 @@ local function searchAndFarmAtPosition(pos)
          if targetPart then
             -- Zum Ziel teleportieren
             humanoidRootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-            task.wait(0.3) -- Cooldown vor dem Interagieren
+            task.wait(0.8) -- Langsamerer Cooldown vor dem Interagieren
             
             -- ProximityPrompt suchen und auslösen
             local function checkAndFirePrompts(container)
@@ -84,7 +85,7 @@ local function searchAndFarmAtPosition(pos)
                   if descendant:IsA("ProximityPrompt") then
                      pcall(function()
                         fireproximityprompt(descendant)
-                        print("[Log] ProximityPrompt ausgelöst!")
+                        print("[Log] ProximityPrompt ausgelöst für: " .. tostring(obj.Name))
                      end)
                   end
                end
@@ -95,10 +96,12 @@ local function searchAndFarmAtPosition(pos)
                checkAndFirePrompts(obj.Parent)
             end
             
-            -- SOFORT nach dem Aufnehmen zurück zur alten Koordinate
+            task.wait(0.8) -- Kurz warten nach dem Auslösen
+            
+            -- Zurück zur alten Koordinate
             humanoidRootPart.CFrame = CFrame.new(pos)
-            print("[Log] Zurück zur Koordinate, warte 1 Sekunde...")
-            task.wait(1.0) -- Exakt 1 Sekunde Pause hier wie gewünscht
+            print("[Log] Zurück zur Koordinate, warte 2 Sekunden...")
+            task.wait(2.0) -- 2 Sekunden Pause wie gewünscht
          end
       end
    end
@@ -106,7 +109,7 @@ local function searchAndFarmAtPosition(pos)
    return foundAny
 end
 
--- Die Hauptschleife steuert den Ablauf mit Cooldowns
+-- Die Hauptschleife steuert den langsamen, sicheren Ablauf
 task.spawn(function()
    while true do
       if farmingActive and humanoidRootPart then
@@ -116,23 +119,23 @@ task.spawn(function()
          searchAndFarmAtPosition(POS_1)
          
          if not farmingActive then break end
-         task.wait(0.5) -- Cooldown zwischen den Positionen
+         task.wait(1.0) -- Pause zwischen den Positionen
          
          -- SCHRITT 2: Koordinate 2
          print("[Log] Gehe zu Koordinate 2: (37, 9, 10002)")
          searchAndFarmAtPosition(POS_2)
          
          if not farmingActive then break end
-         task.wait(0.5) -- Cooldown vor dem Wiederholen
+         task.wait(1.0) -- Pause vor dem Wiederholen
          
       end
-      task.wait(0.5)
+      task.wait(1.0)
    end
 end)
 
 -- Toggle in Rayfield erstellen
 Tab:CreateToggle({
-   Name = "Auto Farm Routen-Modus",
+   Name = "Auto Farm Routen-Modus (Langsam)",
    CurrentValue = false,
    Flag = "AutoFarmToggle",
    Callback = function(Value)
