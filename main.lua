@@ -3,7 +3,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
    Name = "Delta | Visuals & Combat",
    LoadingTitle = "Lade Skript...",
-   LoadingSubtitle = "Keybind Customization",
+   LoadingSubtitle = "Aimbot Fix",
    ConfigurationSaving = { Enabled = false },
    Discord = { Enabled = false },
    KeySystem = false
@@ -30,7 +30,7 @@ local Settings = {
         Enabled = false,
         Smoothness = 0.2,
         TargetPart = "Head",
-        Keybind = Enum.KeyCode.LeftAlt -- Standard Keybind
+        Keybind = Enum.KeyCode.LeftAlt
     }
 }
 
@@ -48,7 +48,6 @@ local function applyESP(player, character)
     local head = character:FindFirstChild("Head")
     if not head then return end
     
-    -- Highlight (Chams)
     local highlight = character:FindFirstChild("ESPHighlight")
     if not highlight then
         highlight = Instance.new("Highlight")
@@ -63,7 +62,6 @@ local function applyESP(player, character)
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 0
     
-    -- Text Billboard (Name & Distanz)
     local billboard = head:FindFirstChild("ESPBillboard")
     if not billboard then
         billboard = Instance.new("BillboardGui")
@@ -154,6 +152,20 @@ local function getClosestPlayer()
     return closestPlayer
 end
 
+-- Sichere Prüfung, ob die zugewiesene Taste gedrückt wird
+local function isAimbotKeyPressed()
+    if not Settings.Aimbot.Keybind then return false end
+    
+    -- Unterscheidung zwischen Tastatur und Maustasten
+    if Settings.Aimbot.Keybind.EnumType == Enum.KeyCode then
+        return UserInputService:IsKeyDown(Settings.Aimbot.Keybind)
+    elseif Settings.Aimbot.Keybind.EnumType == Enum.UserInputType then
+        return UserInputService:IsMouseButtonPressed(Settings.Aimbot.Keybind)
+    end
+    
+    return false
+end
+
 ---------------------------------------------------------
 -- RENDER BINDINGS
 ---------------------------------------------------------
@@ -171,23 +183,19 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- First-Person Aimbot Binding
+-- First-Person Aimbot Loop
 RunService:BindToRenderStep("FirstPersonAimbot", Enum.RenderPriority.Camera.Value + 1, function()
-    if Settings.Aimbot.Enabled and Settings.Aimbot.Keybind then
-        -- Prüfe, ob die im Keybind eingestellte Taste gedrückt gehalten wird
-        local isKeyPressed = UserInputService:IsKeyDown(Settings.Aimbot.Keybind)
-        if isKeyPressed then
-            local targetPlayer = getClosestPlayer()
-            if targetPlayer and targetPlayer.Character then
-                local targetPart = targetPlayer.Character:FindFirstChild(Settings.Aimbot.TargetPart)
-                if targetPart then
-                    local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
-                    
-                    if Settings.Aimbot.Smoothness > 0 and Settings.Aimbot.Smoothness < 1 then
-                        Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Settings.Aimbot.Smoothness)
-                    else
-                        Camera.CFrame = targetCFrame
-                    end
+    if Settings.Aimbot.Enabled and isAimbotKeyPressed() then
+        local targetPlayer = getClosestPlayer()
+        if targetPlayer and targetPlayer.Character then
+            local targetPart = targetPlayer.Character:FindFirstChild(Settings.Aimbot.TargetPart)
+            if targetPart then
+                local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+                
+                if Settings.Aimbot.Smoothness > 0 and Settings.Aimbot.Smoothness < 1 then
+                    Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Settings.Aimbot.Smoothness)
+                else
+                    Camera.CFrame = targetCFrame
                 end
             end
         end
@@ -262,13 +270,21 @@ CombatTab:CreateToggle({
 })
 
 CombatTab:CreateKeybind({
-   Name = "Aimbot Hold Keybind",
+   Name = "Aimbot Keybind",
    CurrentKeybind = "LeftAlt",
-   HoldToInteract = true,
+   HoldToInteract = false,
    Flag = "AimbotKeybind",
    Callback = function(Keybind)
-      -- Speichert den ausgewählten Keycode dynamisch ab
-      Settings.Aimbot.Keybind = Enum.KeyCode[Keybind] or Enum.KeyCode.LeftAlt
+      -- Sauberes Parsen von String/Enum Rückgaben aus Rayfield
+      if typeof(Keybind) == "EnumItem" then
+          Settings.Aimbot.Keybind = Keybind
+      elseif typeof(Keybind) == "string" then
+          if Enum.KeyCode[Keybind] then
+              Settings.Aimbot.Keybind = Enum.KeyCode[Keybind]
+          elseif Enum.UserInputType[Keybind] then
+              Settings.Aimbot.Keybind = Enum.UserInputType[Keybind]
+          end
+      end
    end,
 })
 
@@ -296,7 +312,7 @@ CombatTab:CreateDropdown({
 
 Rayfield:Notify({
    Title = "Script Geladen!",
-   Content = "Keybinds sind jetzt im Combat-Tab anpassbar.",
+   Content = "Aimbot Fix angewendet.",
    Duration = 3,
    Image = 4483362458,
 })
