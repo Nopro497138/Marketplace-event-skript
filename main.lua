@@ -1,22 +1,27 @@
--- Warten, bis das Spiel vollständig geladen ist
+-- 1. Warten bis das Spiel geladen ist
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
--- Sicheres Laden der Rayfield Library
-local Success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- 2. Rayfield Library laden (Delta-optimiert)
+local Rayfield
+local success, err = pcall(function()
+    local rawCode = game:HttpGet('https://sirius.menu/rayfield')
+    Rayfield = loadstring(rawCode)()
 end)
 
-if not Success or not Rayfield then
-    warn("Rayfield konnte nicht geladen werden!")
-    return
+if not success or not Rayfield then
+    warn("Rayfield Download fehlgeschlagen: " .. tostring(err))
+    -- Fallback auf Kovo / Orion Library für Delta Executor
+    local rawCodeFallback = game:HttpGet('https://raw.githubusercontent.com/shlexware/Orion/main/source')
+    Rayfield = loadstring(rawCodeFallback)()
 end
 
+-- 3. Window & Tab Erstellung
 local Window = Rayfield:CreateWindow({
     Name = "Auto Farm Script",
     LoadingTitle = "Initializing...",
-    LoadingSubtitle = "Delta Executor Ready",
+    LoadingSubtitle = "Delta Executor",
     ConfigurationSaving = { Enabled = false },
     KeySystem = false
 })
@@ -25,7 +30,7 @@ local Tab = Window:CreateTab("Main", 4483362458)
 
 local AutoFarm = false
 
--- Safe-Get Helper Funktion um Nil-Errors im Workspace zu verhindern
+-- Safe-Get Helper
 local function getObject(path)
     local current = workspace
     for _, name in ipairs(path) do
@@ -46,6 +51,7 @@ local function teleportTo(x, y, z)
     end
 end
 
+-- Toggle Button
 Tab:CreateToggle({
     Name = "Auto Farm Loop",
     CurrentValue = false,
@@ -59,7 +65,6 @@ Tab:CreateToggle({
                 local Remotes = ReplicatedStorage:WaitForChild("__remotes", 5)
 
                 if not Remotes then
-                    Rayfield:Notify({ Title = "Fehler", Content = "Remotes nicht gefunden!", Duration = 3 })
                     AutoFarm = false
                     return
                 end
@@ -108,15 +113,9 @@ Tab:CreateToggle({
                         launderRemote:FireServer(launderPart)
                     end
 
-                    task.wait(1) -- Wartezeit vor dem nächsten Loop
+                    task.wait(1)
                 end
             end)
         end
     end,
-})
-
-Rayfield:Notify({
-    Title = "Script Geladen",
-    Content = "UI wurde erfolgreich gestartet!",
-    Duration = 3
 })
