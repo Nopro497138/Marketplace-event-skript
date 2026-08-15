@@ -1,91 +1,122 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Warten, bis das Spiel vollständig geladen ist
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+-- Sicheres Laden der Rayfield Library
+local Success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not Success or not Rayfield then
+    warn("Rayfield konnte nicht geladen werden!")
+    return
+end
 
 local Window = Rayfield:CreateWindow({
     Name = "Auto Farm Script",
-    LoadingTitle = "Loading Script...",
-    LoadingSubtitle = "by Assistant",
-    ConfigurationSaving = {
-        Enabled = false
-    }
+    LoadingTitle = "Initializing...",
+    LoadingSubtitle = "Delta Executor Ready",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
 })
 
 local Tab = Window:CreateTab("Main", 4483362458)
 
-local _G.AutoFarm = false
+local AutoFarm = false
+
+-- Safe-Get Helper Funktion um Nil-Errors im Workspace zu verhindern
+local function getObject(path)
+    local current = workspace
+    for _, name in ipairs(path) do
+        current = current:FindFirstChild(name)
+        if not current then return nil end
+    end
+    return current
+end
+
+-- Safe Teleport
+local function teleportTo(x, y, z)
+    local player = game:GetService("Players").LocalPlayer
+    if player and player.Character then
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = CFrame.new(x, y, z)
+        end
+    end
+end
 
 Tab:CreateToggle({
     Name = "Auto Farm Loop",
     CurrentValue = false,
     Flag = "AutoFarmToggle",
     Callback = function(Value)
-        _G.AutoFarm = Value
-        
-        if Value then
-            task.spawn(function()
-                local Players = game:GetService("Players")
-                local ReplicatedStorage = game:GetService("ReplicatedStorage")
-                local LocalPlayer = Players.LocalPlayer
+        AutoFarm = Value
 
-                local function teleportTo(x, y, z)
-                    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-                    local hrp = character:WaitForChild("HumanoidRootPart")
-                    hrp.CFrame = CFrame.new(x, y, z)
+        if AutoFarm then
+            task.spawn(function()
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                local Remotes = ReplicatedStorage:WaitForChild("__remotes", 5)
+
+                if not Remotes then
+                    Rayfield:Notify({ Title = "Fehler", Content = "Remotes nicht gefunden!", Duration = 3 })
+                    AutoFarm = false
+                    return
                 end
 
-                while _G.AutoFarm do
+                while AutoFarm do
                     -- 1. Fake Diamond Ring 5x kaufen
                     for i = 1, 5 do
-                        if not _G.AutoFarm then break end
-                        local item = workspace:WaitForChild("WorldBuyableItems", 5)
-                            and workspace.WorldBuyableItems:WaitForChild("CivilianArea", 5)
-                            and workspace.WorldBuyableItems.CivilianArea:WaitForChild("Fake Diamond Ring", 5)
+                        if not AutoFarm then break end
                         
-                        if item then
-                            ReplicatedStorage:WaitForChild("__remotes")
-                                :WaitForChild("WorldBuyableItemService")
-                                :WaitForChild("PurchaseWorldBuyableItem")
-                                :FireServer(item)
+                        local ring = getObject({"WorldBuyableItems", "CivilianArea", "Fake Diamond Ring"})
+                        local buyRemote = Remotes:FindFirstChild("WorldBuyableItemService") 
+                            and Remotes.WorldBuyableItemService:FindFirstChild("PurchaseWorldBuyableItem")
+
+                        if ring and buyRemote then
+                            buyRemote:FireServer(ring)
                         end
                         task.wait(0.3)
                     end
 
-                    if not _G.AutoFarm then break end
+                    if not AutoFarm then break end
 
                     -- 2. Teleport zu Seller4 & Verkaufen
                     teleportTo(209, 18, -44)
-                    task.wait(0.5)
+                    task.wait(0.6)
 
-                    local seller = workspace:WaitForChild("NPC", 5)
-                        and workspace.NPC:WaitForChild("Seller4", 5)
-                    
-                    if seller then
-                        ReplicatedStorage:WaitForChild("__remotes")
-                            :WaitForChild("SmuggleService")
-                            :WaitForChild("SellSmuggledGoods")
-                            :FireServer(seller)
+                    local seller = getObject({"NPC", "Seller4"})
+                    local sellRemote = Remotes:FindFirstChild("SmuggleService") 
+                        and Remotes.SmuggleService:FindFirstChild("SellSmuggledGoods")
+
+                    if seller and sellRemote then
+                        sellRemote:FireServer(seller)
                     end
 
-                    task.wait(0.5)
-                    if not _G.AutoFarm then break end
+                    task.wait(0.6)
+                    if not AutoFarm then break end
 
                     -- 3. Teleport zu Launder & Waschen
                     teleportTo(6807, 18, -34)
-                    task.wait(0.5)
+                    task.wait(0.6)
 
-                    local launderPart = workspace:WaitForChild("LaunderPrompts", 5)
-                        and workspace.LaunderPrompts:WaitForChild("LaunderTrigger", 5)
-                        and workspace.LaunderPrompts.LaunderTrigger:WaitForChild("PromptPart", 5)
+                    local launderPart = getObject({"LaunderPrompts", "LaunderTrigger", "PromptPart"})
+                    local launderRemote = Remotes:FindFirstChild("SmuggleService") 
+                        and Remotes.SmuggleService:FindFirstChild("LaunderBriefcase")
 
-                    if launderPart then
-                        ReplicatedStorage:WaitForChild("__remotes")
-                            :WaitForChild("SmuggleService")
-                            :WaitForChild("LaunderBriefcase")
-                            :FireServer(launderPart)
+                    if launderPart and launderRemote then
+                        launderRemote:FireServer(launderPart)
                     end
 
-                    task.wait(1) -- Kurze Pause vor dem nächsten Durchlauf
+                    task.wait(1) -- Wartezeit vor dem nächsten Loop
                 end
             end)
         end
     end,
+})
+
+Rayfield:Notify({
+    Title = "Script Geladen",
+    Content = "UI wurde erfolgreich gestartet!",
+    Duration = 3
 })
