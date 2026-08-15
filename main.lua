@@ -1,318 +1,91 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Delta | Visuals & Combat",
-   LoadingTitle = "Lade Skript...",
-   LoadingSubtitle = "Aimbot Fix",
-   ConfigurationSaving = { Enabled = false },
-   Discord = { Enabled = false },
-   KeySystem = false
-})
-
--- Services
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
-local Camera = Workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-
--- Einstellungen
-local Settings = {
-    ESP = {
-        Enabled = false,
-        ShowNames = true,
-        ShowDistance = true,
-        HighlightColor = Color3.fromRGB(0, 255, 0),
-        TextColor = Color3.fromRGB(255, 255, 255)
-    },
-    Aimbot = {
-        Enabled = false,
-        Smoothness = 0.2,
-        TargetPart = "Head",
-        Keybind = Enum.KeyCode.LeftAlt
+    Name = "Auto Farm Script",
+    LoadingTitle = "Loading Script...",
+    LoadingSubtitle = "by Assistant",
+    ConfigurationSaving = {
+        Enabled = false
     }
-}
-
--- Tabs
-local VisualsTab = Window:CreateTab("Visuals (ESP)", 4483362458)
-local CombatTab = Window:CreateTab("Combat (Aimbot)", 4483362458)
-
----------------------------------------------------------
--- ESP LOGIK
----------------------------------------------------------
-
-local function applyESP(player, character)
-    if player == LocalPlayer or not character then return end
-    
-    local head = character:FindFirstChild("Head")
-    if not head then return end
-    
-    local highlight = character:FindFirstChild("ESPHighlight")
-    if not highlight then
-        highlight = Instance.new("Highlight")
-        highlight.Name = "ESPHighlight"
-        highlight.Adornee = character
-        highlight.Parent = character
-    end
-    
-    highlight.Enabled = Settings.ESP.Enabled
-    highlight.FillColor = Settings.ESP.HighlightColor
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 0
-    
-    local billboard = head:FindFirstChild("ESPBillboard")
-    if not billboard then
-        billboard = Instance.new("BillboardGui")
-        billboard.Name = "ESPBillboard"
-        billboard.Adornee = head
-        billboard.Size = UDim2.new(0, 200, 0, 50)
-        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-        billboard.AlwaysOnTop = true
-        billboard.Parent = head
-        
-        local textLabel = Instance.new("TextLabel")
-        textLabel.Name = "ESPLabel"
-        textLabel.Size = UDim2.new(1, 0, 1, 0)
-        textLabel.BackgroundTransparency = 1
-        textLabel.Font = Enum.Font.SourceSansBold
-        textLabel.TextSize = 14
-        textLabel.TextStrokeTransparency = 0
-        textLabel.Parent = billboard
-    end
-    
-    local textLabel = billboard:FindFirstChild("ESPLabel")
-    if textLabel then
-        textLabel.TextColor3 = Settings.ESP.TextColor
-        
-        if Settings.ESP.Enabled then
-            billboard.Enabled = true
-            local myChar = LocalPlayer.Character
-            local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            local targetRoot = character:FindFirstChild("HumanoidRootPart")
-            
-            local textParts = {}
-            if Settings.ESP.ShowNames then
-                table.insert(textParts, player.DisplayName or player.Name)
-            end
-            
-            if Settings.ESP.ShowDistance and myRoot and targetRoot then
-                local studs = (targetRoot.Position - myRoot.Position).Magnitude
-                local meters = math.floor(studs * 0.28)
-                table.insert(textParts, string.format("[%dm]", meters))
-            end
-            
-            textLabel.Text = table.concat(textParts, " ")
-        else
-            billboard.Enabled = false
-        end
-    end
-end
-
-local function cleanESP(character)
-    if not character then return end
-    local highlight = character:FindFirstChild("ESPHighlight")
-    if highlight then highlight:Destroy() end
-    
-    local head = character:FindFirstChild("Head")
-    if head then
-        local billboard = head:FindFirstChild("ESPBillboard")
-        if billboard then billboard:Destroy() end
-    end
-end
-
----------------------------------------------------------
--- AIMBOT LOGIK
----------------------------------------------------------
-
-local function getClosestPlayer()
-    local closestPlayer = nil
-    local shortestDistance = math.huge
-    
-    local myChar = LocalPlayer.Character
-    if not myChar then return nil end
-    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return nil end
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local humanoid = player.Character:FindFirstChild("Humanoid")
-            local targetPart = player.Character:FindFirstChild(Settings.Aimbot.TargetPart)
-            
-            if humanoid and humanoid.Health > 0 and targetPart then
-                local distance = (targetPart.Position - myRoot.Position).Magnitude
-                if distance < shortestDistance then
-                    shortestDistance = distance
-                    closestPlayer = player
-                end
-            end
-        end
-    end
-    return closestPlayer
-end
-
--- Sichere Prüfung, ob die zugewiesene Taste gedrückt wird
-local function isAimbotKeyPressed()
-    if not Settings.Aimbot.Keybind then return false end
-    
-    -- Unterscheidung zwischen Tastatur und Maustasten
-    if Settings.Aimbot.Keybind.EnumType == Enum.KeyCode then
-        return UserInputService:IsKeyDown(Settings.Aimbot.Keybind)
-    elseif Settings.Aimbot.Keybind.EnumType == Enum.UserInputType then
-        return UserInputService:IsMouseButtonPressed(Settings.Aimbot.Keybind)
-    end
-    
-    return false
-end
-
----------------------------------------------------------
--- RENDER BINDINGS
----------------------------------------------------------
-
--- ESP Loop
-RunService.RenderStepped:Connect(function()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            if Settings.ESP.Enabled then
-                applyESP(player, player.Character)
-            else
-                cleanESP(player.Character)
-            end
-        end
-    end
-end)
-
--- First-Person Aimbot Loop
-RunService:BindToRenderStep("FirstPersonAimbot", Enum.RenderPriority.Camera.Value + 1, function()
-    if Settings.Aimbot.Enabled and isAimbotKeyPressed() then
-        local targetPlayer = getClosestPlayer()
-        if targetPlayer and targetPlayer.Character then
-            local targetPart = targetPlayer.Character:FindFirstChild(Settings.Aimbot.TargetPart)
-            if targetPart then
-                local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
-                
-                if Settings.Aimbot.Smoothness > 0 and Settings.Aimbot.Smoothness < 1 then
-                    Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Settings.Aimbot.Smoothness)
-                else
-                    Camera.CFrame = targetCFrame
-                end
-            end
-        end
-    end
-end)
-
----------------------------------------------------------
--- UI CONTROLS: VISUALS
----------------------------------------------------------
-
-VisualsTab:CreateToggle({
-   Name = "ESP Aktivieren",
-   CurrentValue = false,
-   Flag = "ESPMasterToggle",
-   Callback = function(Value)
-      Settings.ESP.Enabled = Value
-      if not Value then
-          for _, player in ipairs(Players:GetPlayers()) do
-              if player.Character then cleanESP(player.Character) end
-          end
-      end
-   end,
 })
 
-VisualsTab:CreateToggle({
-   Name = "Namen anzeigen",
-   CurrentValue = true,
-   Flag = "ESPShowNames",
-   Callback = function(Value)
-      Settings.ESP.ShowNames = Value
-   end,
-})
+local Tab = Window:CreateTab("Main", 4483362458)
 
-VisualsTab:CreateToggle({
-   Name = "Distanz (Meter) anzeigen",
-   CurrentValue = true,
-   Flag = "ESPShowDistance",
-   Callback = function(Value)
-      Settings.ESP.ShowDistance = Value
-   end,
-})
+local _G.AutoFarm = false
 
-VisualsTab:CreateColorPicker({
-    Name = "Highlight Farbe",
-    Color = Color3.fromRGB(0, 255, 0),
-    Flag = "ESPHighlightColor",
+Tab:CreateToggle({
+    Name = "Auto Farm Loop",
+    CurrentValue = false,
+    Flag = "AutoFarmToggle",
     Callback = function(Value)
-        Settings.ESP.HighlightColor = Value
+        _G.AutoFarm = Value
+        
+        if Value then
+            task.spawn(function()
+                local Players = game:GetService("Players")
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                local LocalPlayer = Players.LocalPlayer
+
+                local function teleportTo(x, y, z)
+                    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+                    local hrp = character:WaitForChild("HumanoidRootPart")
+                    hrp.CFrame = CFrame.new(x, y, z)
+                end
+
+                while _G.AutoFarm do
+                    -- 1. Fake Diamond Ring 5x kaufen
+                    for i = 1, 5 do
+                        if not _G.AutoFarm then break end
+                        local item = workspace:WaitForChild("WorldBuyableItems", 5)
+                            and workspace.WorldBuyableItems:WaitForChild("CivilianArea", 5)
+                            and workspace.WorldBuyableItems.CivilianArea:WaitForChild("Fake Diamond Ring", 5)
+                        
+                        if item then
+                            ReplicatedStorage:WaitForChild("__remotes")
+                                :WaitForChild("WorldBuyableItemService")
+                                :WaitForChild("PurchaseWorldBuyableItem")
+                                :FireServer(item)
+                        end
+                        task.wait(0.3)
+                    end
+
+                    if not _G.AutoFarm then break end
+
+                    -- 2. Teleport zu Seller4 & Verkaufen
+                    teleportTo(209, 18, -44)
+                    task.wait(0.5)
+
+                    local seller = workspace:WaitForChild("NPC", 5)
+                        and workspace.NPC:WaitForChild("Seller4", 5)
+                    
+                    if seller then
+                        ReplicatedStorage:WaitForChild("__remotes")
+                            :WaitForChild("SmuggleService")
+                            :WaitForChild("SellSmuggledGoods")
+                            :FireServer(seller)
+                    end
+
+                    task.wait(0.5)
+                    if not _G.AutoFarm then break end
+
+                    -- 3. Teleport zu Launder & Waschen
+                    teleportTo(6807, 18, -34)
+                    task.wait(0.5)
+
+                    local launderPart = workspace:WaitForChild("LaunderPrompts", 5)
+                        and workspace.LaunderPrompts:WaitForChild("LaunderTrigger", 5)
+                        and workspace.LaunderPrompts.LaunderTrigger:WaitForChild("PromptPart", 5)
+
+                    if launderPart then
+                        ReplicatedStorage:WaitForChild("__remotes")
+                            :WaitForChild("SmuggleService")
+                            :WaitForChild("LaunderBriefcase")
+                            :FireServer(launderPart)
+                    end
+
+                    task.wait(1) -- Kurze Pause vor dem nächsten Durchlauf
+                end
+            end)
+        end
     end,
-})
-
-VisualsTab:CreateColorPicker({
-    Name = "Text Farbe",
-    Color = Color3.fromRGB(255, 255, 255),
-    Flag = "ESPTextColor",
-    Callback = function(Value)
-        Settings.ESP.TextColor = Value
-    end,
-})
-
----------------------------------------------------------
--- UI CONTROLS: COMBAT
----------------------------------------------------------
-
-CombatTab:CreateToggle({
-   Name = "Aimbot Aktivieren",
-   CurrentValue = false,
-   Flag = "AimbotMasterToggle",
-   Callback = function(Value)
-      Settings.Aimbot.Enabled = Value
-   end,
-})
-
-CombatTab:CreateKeybind({
-   Name = "Aimbot Keybind",
-   CurrentKeybind = "LeftAlt",
-   HoldToInteract = false,
-   Flag = "AimbotKeybind",
-   Callback = function(Keybind)
-      -- Sauberes Parsen von String/Enum Rückgaben aus Rayfield
-      if typeof(Keybind) == "EnumItem" then
-          Settings.Aimbot.Keybind = Keybind
-      elseif typeof(Keybind) == "string" then
-          if Enum.KeyCode[Keybind] then
-              Settings.Aimbot.Keybind = Enum.KeyCode[Keybind]
-          elseif Enum.UserInputType[Keybind] then
-              Settings.Aimbot.Keybind = Enum.UserInputType[Keybind]
-          end
-      end
-   end,
-})
-
-CombatTab:CreateSlider({
-   Name = "Aimbot Smoothness (Sanftheit)",
-   Range = {0.05, 1},
-   Increment = 0.05,
-   Suffix = "Speed",
-   CurrentValue = 0.2,
-   Flag = "AimbotSmoothness",
-   Callback = function(Value)
-      Settings.Aimbot.Smoothness = Value
-   end,
-})
-
-CombatTab:CreateDropdown({
-   Name = "Zielkörperteil",
-   Options = {"Head", "HumanoidRootPart"},
-   CurrentOption = "Head",
-   Flag = "AimbotTargetPart",
-   Callback = function(Option)
-      Settings.Aimbot.TargetPart = Option
-   end,
-})
-
-Rayfield:Notify({
-   Title = "Script Geladen!",
-   Content = "Aimbot Fix angewendet.",
-   Duration = 3,
-   Image = 4483362458,
 })
