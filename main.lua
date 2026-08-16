@@ -1,9 +1,8 @@
 -- ============================================================
 --          DELTA EXECUTOR - CRASH-PROOF AIMBOT + ESP + WALLBANG
---                     (ORION UI EDITION)
+--                   (NATIVE UI - ZERO HTTP / NO 404)
 -- ============================================================
 
--- 1. WARTEN BIS SPIEL VOLLSTÄNDIG GELADEN IST
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
@@ -12,44 +11,20 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Orion Library Laden
-local OrionLib
-local success, err = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
-end)
-
-if not success or not OrionLib then
-    warn("Orion Library konnte nicht geladen werden:", err)
-    return
-end
-
--- Kamera-Referenz automatisch erneuern
 Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     Camera = Workspace.CurrentCamera or Workspace:FindFirstChildOfClass("Camera")
 end)
 
 -- Einstellungen
 local Settings = {
-    ESP = {
-        Enabled = true,
-        Box = true,
-        Name = true,
-        TeamCheck = true
-    },
-    Aimbot = {
-        Enabled = true,
-        FOV = 120,
-        Smoothness = 0.2,
-        AimKey = Enum.KeyCode.LeftControl,
-        TeamCheck = true
-    },
-    Wallbang = {
-        Enabled = true
-    }
+    ESP = { Enabled = true, Box = true, Name = true, TeamCheck = true },
+    Aimbot = { Enabled = true, FOV = 120, Smoothness = 0.2, AimKey = Enum.KeyCode.LeftControl, TeamCheck = true },
+    Wallbang = { Enabled = true }
 }
 
 -- FOV Circle
@@ -96,7 +71,6 @@ local function DestroyESP(player)
     ESPObjects[player] = nil
 end
 
--- Helfer
 local function IsAlive(player)
     if not player or not player.Character then return false end
     local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
@@ -136,7 +110,6 @@ local function GetClosestTarget()
     return closestPlayer
 end
 
--- ESP Loop
 local function UpdateESP()
     for player, obj in pairs(ESPObjects) do
         if not Players:FindFirstChild(player.Name) or not IsAlive(player) or not IsEnemy(player) or not Settings.ESP.Enabled then
@@ -182,7 +155,7 @@ local function UpdateESP()
     end
 end
 
--- Aimbot State
+-- Aimbot Loop
 local aimbotActive = false
 local currentTarget = nil
 
@@ -226,7 +199,7 @@ RunService.RenderStepped:Connect(function(delta)
     end
 end)
 
--- SICHERER WALLBANG HOOK VIA METATABLE
+-- Wallbang Hook
 local function SetupWallbang()
     if not hookmetamethod then return end
 
@@ -264,95 +237,85 @@ end
 
 pcall(SetupWallbang)
 
--- Player Management
-for _, player in ipairs(Players:GetPlayers()) do
-    CreateESP(player)
-end
-
+for _, player in ipairs(Players:GetPlayers()) do CreateESP(player) end
 Players.PlayerAdded:Connect(CreateESP)
 Players.PlayerRemoving:Connect(DestroyESP)
 
--- Orion UI Fenster erstellen
-local Window = OrionLib:MakeWindow({
-    Name = "Delta Hub | Wallbang + ESP",
-    HidePremium = true,
-    SaveConfig = false,
-    ConfigFolder = "DeltaHubConfig"
-})
+-- NATIVES SCREEN-GUI ERSTELLEN (KEIN DOWNLOAD ERFORDERLICH)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DeltaHubNativeUI"
+ScreenGui.ResetOnSpawn = false
 
-local MainTab = Window:MakeTab({
-    Name = "Aimbot",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+pcall(function()
+    ScreenGui.Parent = CoreGui
+end)
+if not ScreenGui.Parent then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
 
-local ESPTab = Window:MakeTab({
-    Name = "ESP",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 240, 0, 280)
+MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
 
-local MiscTab = Window:MakeTab({
-    Name = "Misc",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
 
--- Controls
-MainTab:AddToggle({
-    Name = "Aimbot Aktivieren",
-    Default = Settings.Aimbot.Enabled,
-    Callback = function(v) Settings.Aimbot.Enabled = v end
-})
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+Title.Text = " Delta Hub (Native) "
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+Title.Font = Enum.Font.SourceSansBold
+Title.Parent = MainFrame
 
-MainTab:AddSlider({
-    Name = "Aimbot FOV Radius",
-    Min = 30,
-    Max = 400,
-    Default = Settings.Aimbot.FOV,
-    Increment = 5,
-    ValueName = "px",
-    Callback = function(v) Settings.Aimbot.FOV = v end
-})
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = Title
 
-MainTab:AddSlider({
-    Name = "Smoothness",
-    Min = 0.01,
-    Max = 0.95,
-    Default = Settings.Aimbot.Smoothness,
-    Increment = 0.05,
-    ValueName = "",
-    Callback = function(v) Settings.Aimbot.Smoothness = v end
-})
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(1, -20, 1, -45)
+Container.Position = UDim2.new(0, 10, 0, 40)
+Container.BackgroundTransparency = 1
+Container.Parent = MainFrame
 
-ESPTab:AddToggle({
-    Name = "ESP Aktivieren",
-    Default = Settings.ESP.Enabled,
-    Callback = function(v) Settings.ESP.Enabled = v end
-})
+local UIList = Instance.new("UIListLayout")
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+UIList.Padding = UDim.new(0, 8)
+UIList.Parent = Container
 
-ESPTab:AddToggle({
-    Name = "Box ESP",
-    Default = Settings.ESP.Box,
-    Callback = function(v) Settings.ESP.Box = v end
-})
+local function CreateToggleButton(text, defaultState, callback)
+    local state = defaultState
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 90) or Color3.fromRGB(50, 50, 58)
+    btn.Text = text .. ": " .. (state and "AN" or "AUS")
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSansSemibold
+    btn.TextSize = 14
+    btn.Parent = Container
 
-ESPTab:AddToggle({
-    Name = "Name ESP",
-    Default = Settings.ESP.Name,
-    Callback = function(v) Settings.ESP.Name = v end
-})
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
 
-ESPTab:AddToggle({
-    Name = "Team Check",
-    Default = Settings.ESP.TeamCheck,
-    Callback = function(v) Settings.ESP.TeamCheck = v end
-})
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 90) or Color3.fromRGB(50, 50, 58)
+        btn.Text = text .. ": " .. (state and "AN" or "AUS")
+        callback(state)
+    end)
+end
 
-MiscTab:AddToggle({
-    Name = "Wallbang (Durch Wände)",
-    Default = Settings.Wallbang.Enabled,
-    Callback = function(v) Settings.Wallbang.Enabled = v end
-})
-
-OrionLib:Init()
+CreateToggleButton("Aimbot", Settings.Aimbot.Enabled, function(v) Settings.Aimbot.Enabled = v end)
+CreateToggleButton("ESP Box", Settings.ESP.Box, function(v) Settings.ESP.Box = v end)
+CreateToggleButton("ESP Name", Settings.ESP.Name, function(v) Settings.ESP.Name = v end)
+CreateToggleButton("Team Check", Settings.ESP.TeamCheck, function(v) Settings.ESP.TeamCheck = v end)
+CreateToggleButton("Wallbang", Settings.Wallbang.Enabled, function(v) Settings.Wallbang.Enabled = v end)
