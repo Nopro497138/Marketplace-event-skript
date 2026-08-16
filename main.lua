@@ -2,9 +2,9 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Celestial Farm | Delta (Robust)",
+   Name = "Celestial Farm | Delta (Fix)",
    LoadingTitle = "Celestial Auto-Farm",
-   LoadingSubtitle = "v2.0 Enhanced",
+   LoadingSubtitle = "Model Search Fixed",
    ConfigurationSaving = { Enabled = false },
    Discord = { Enabled = false },
    KeySystem = false
@@ -22,14 +22,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- Hilfsfunktion: Robuster Teleport mit Noclip-Schutz
-local function safeTeleport(targetPosition)
+-- Hilfsfunktion: Teleportiert sicher zum Ziel
+local function safeTeleport(targetCFrame)
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local root = char:FindFirstChild("HumanoidRootPart")
     
-    if not root then return end
+    if not root or not targetCFrame then return end
 
-    -- Kurzzeitiges Noclip aktivieren, um nicht festzustecken
+    -- Noclip aktivieren, damit man nicht im Modell feststeckt
     local noclipConn
     noclipConn = RunService.Stepped:Connect(function()
         if char then
@@ -41,53 +41,49 @@ local function safeTeleport(targetPosition)
         end
     end)
 
-    -- Teleport durchführen
-    if typeof(targetPosition) == "Vector3" then
-        root.CFrame = CFrame.new(targetPosition)
-    elseif typeof(targetPosition) == "CFrame" then
-        root.CFrame = targetPosition
-    end
-
+    root.CFrame = targetCFrame
     task.wait(0.1)
+    
     if noclipConn then noclipConn:Disconnect() end
 end
 
--- Hilfsfunktion: Robuster Text-Check
-local function isCelestial(instance)
-    if not instance then return false end
+-- Funktion: Prüft gründlich, ob ein Objekt oder dessen Kinder den Text "Celestial" enthalten
+local function containsCelestialText(obj)
+    if not obj then return false end
 
-    -- Textlabels / TextButtons / TextInputs
-    local success, text = pcall(function() return instance.Text end)
-    if success and typeof(text) == "string" and text:lower():find("celestial") then
+    -- 1. Name des Objekts
+    if string.find(string.lower(obj.Name), "celestial") then
         return true
     end
 
-    -- ValueBases (StringValue, ObjectValue Name, etc.)
-    if instance:IsA("StringValue") and instance.Value:lower():find("celestial") then
+    -- 2. Falls ValueBase (StringValue)
+    if obj:IsA("StringValue") and string.find(string.lower(obj.Value), "celestial") then
         return true
     end
 
-    -- Name des Objekts selbst prüfen
-    if instance.Name:lower():find("celestial") then
+    -- 3. Falls Text-Property vorhanden ist (TextLabel, TextButton, TextBox, etc.)
+    local success, textValue = pcall(function()
+        return obj.Text
+    end)
+    if success and typeof(textValue) == "string" and string.find(string.lower(textValue), "celestial") then
         return true
     end
 
     return false
 end
 
--- Hilfsfunktion: CFrame/Position eines Models sicher ermitteln
+-- Funktion: Findet die genaue Position/CFrame eines Modells
 local function getModelCFrame(model)
     if model:IsA("Model") then
         if model.PrimaryPart then
             return model.PrimaryPart.CFrame
         end
-        local pivot = model:GetPivot()
-        if pivot ~= CFrame.new(0, 0, 0) then
-            return pivot
-        end
+        return model:GetPivot()
+    elseif model:IsA("BasePart") then
+        return model.CFrame
     end
-    
-    -- Fallback: Suche erstes BasePart im Model
+
+    -- Fallback: Erstes Part im Modell suchen
     local part = model:FindFirstChildWhichIsA("BasePart", true)
     if part then
         return part.CFrame
@@ -96,86 +92,63 @@ local function getModelCFrame(model)
     return nil
 end
 
--- Hilfsfunktion: ProximityPrompt zuverlässig drücken
-local function triggerPrompt(prompt)
-    if not prompt or not prompt:IsA("ProximityPrompt") then return end
-
-    -- Prompt-Sicherheiten erzwingen
-    prompt.Enabled = true
-    prompt.MaxActivationDistance = math.huge
-    prompt.HoldDuration = 0
-
-    -- Interaktionsversuch 1: Executor-Funktion
-    pcall(function()
-        fireproximityprompt(prompt)
-    end)
-
-    task.wait(0.05)
-
-    -- Interaktionsversuch 2: Fallback Event
-    pcall(function()
-        if prompt.InputHoldBegan then
-            prompt:InputHoldBegan()
-            task.wait(0.05)
-            prompt:InputHoldEnded()
-        end
-    end)
-end
-
--- Hauptlogik für Auto-Farm
+-- Hauptschleife für die Suche und Interaktion
 local function runCelestialRoutine()
     local entitiesFolder = workspace:FindFirstChild("EntitiesFolder")
-    if not entitiesFolder then 
-        warn("EntitiesFolder nicht in Workspace gefunden!")
-        return 
-    end
+    if not entitiesFolder then return end
 
-    for _, entity in ipairs(entitiesFolder:GetChildren()) do
+    -- Gehe jedes Modell/Objekt im EntitiesFolder durch
+    for _, model in ipairs(entitiesFolder:GetChildren()) do
         if not _G.CelestialFarm then break end
 
-        local foundCelestial = false
+        local isMatch = false
 
-        -- Prüfe das Model selbst und alle Unterobjekte
-        if isCelestial(entity) then
-            foundCelestial = true
+        -- Prüfe das Modell selbst
+        if containsCelestialText(model) then
+            isMatch = true
         else
-            for _, descendant in ipairs(entity:GetDescendants()) do
-                if isCelestial(descendant) then
-                    foundCelestial = true
+            -- Durchsuche ALLE Unterobjekte im Modell (UI, Values, Parts, etc.)
+            for _, descendant in ipairs(model:GetDescendants()) do
+                if containsCelestialText(descendant) then
+                    isMatch = true
                     break
                 end
             end
         end
 
-        if foundCelestial then
-            local targetCFrame = getModelCFrame(entity)
+        -- Wenn "Celestial" im Modell gefunden wurde
+        if isMatch then
+            local targetCFrame = getModelCFrame(model)
+
             if targetCFrame then
-                -- 1. Teleport zum Model (etwas angehoben, um nicht im Boden zu sein)
-                safeTeleport(targetCFrame + Vector3.new(0, 3, 0))
+                -- 1. Teleportiere direkt zum Modell (leicht erhöht + Offset)
+                safeTeleport(targetCFrame * CFrame.new(0, 2, 0))
                 task.wait(0.2)
 
-                -- 2. Nach "TakeBrainrotPrompt" suchen und auslösen
-                local prompt = entity:FindFirstChild("TakeBrainrotPrompt", true)
+                -- 2. Suche nach "TakeBrainrotPrompt" im Modell und drücke ihn
+                local prompt = model:FindFirstChild("TakeBrainrotPrompt", true)
                 if not prompt then
-                    -- Fallback: Falls der Name leicht abweicht oder es irgendein Prompt ist
-                    for _, p in ipairs(entity:GetDescendants()) do
-                        if p:IsA("ProximityPrompt") then
-                            prompt = p
-                            break
-                        end
-                    end
+                    -- Fallback: Nimm irgendeinen ProximityPrompt im Modell
+                    prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
                 end
 
-                if prompt then
-                    triggerPrompt(prompt)
-                    task.wait(0.25)
+                if prompt and prompt:IsA("ProximityPrompt") then
+                    prompt.Enabled = true
+                    prompt.HoldDuration = 0
+                    prompt.MaxActivationDistance = math.huge
+                    
+                    pcall(function()
+                        fireproximityprompt(prompt)
+                    end)
+                    task.wait(0.2)
                 end
 
-                -- 3. Teleport zur Zielkoordinate
-                safeTeleport(Vector3.new(19, 4, -847))
-                task.wait(0.4)
-                
-                break -- Nach Erfolg Schleife neu starten für das nächste Item
+                -- 3. Teleportiere zur Zielkoordinate (19, 4, -847)
+                safeTeleport(CFrame.new(19, 4, -847))
+                task.wait(0.3)
+
+                -- Schleife abbrechen, um von vorne neu im EntitiesFolder zu scannen
+                break
             end
         end
     end
@@ -200,21 +173,13 @@ local Toggle = Tab:CreateToggle({
    end,
 })
 
--- Button: Auto PlaceStand Loop
+-- Button: Loop PlaceStand Remote
 local isPlacingStand = false
 
 local Button = Tab:CreateButton({
    Name = "Loop PlaceStand Remote",
    Callback = function()
-      if isPlacingStand then
-          Rayfield:Notify({
-              Title = "PlaceStand Loop",
-              Content = "Prozess läuft bereits!",
-              Duration = 3,
-              Image = 4483362458,
-          })
-          return
-      end
+      if isPlacingStand then return end
 
       task.spawn(function()
           isPlacingStand = true
@@ -227,7 +192,7 @@ local Button = Tab:CreateButton({
               Rayfield:Notify({
                   Title = "Fehler",
                   Content = "PlaceStand Remote nicht gefunden!",
-                  Duration = 5,
+                  Duration = 4,
                   Image = 4483362458,
               })
               isPlacingStand = false
@@ -236,7 +201,7 @@ local Button = Tab:CreateButton({
 
           Rayfield:Notify({
               Title = "PlaceStand Loop",
-              Content = "Starte Remote-Schleife ab 1...",
+              Content = "Starte Schleife ab 1...",
               Duration = 3,
               Image = 4483362458,
           })
@@ -248,12 +213,10 @@ local Button = Tab:CreateButton({
               end)
 
               if not success then
-                  warn("Abbruch bei Zahl " .. tostring(currentNum) .. " mit Fehler: " .. tostring(result))
-                  
                   Rayfield:Notify({
                       Title = "Schleife Gestoppt",
                       Content = "Error bei Zahl " .. tostring(currentNum) .. "!",
-                      Duration = 6,
+                      Duration = 5,
                       Image = 4483362458,
                   })
                   break
