@@ -1,5 +1,5 @@
 -- ============================================================
---          DELTA EXECUTOR - ADVANCED RAYFIELD HUB
+--          DELTA EXECUTOR - ADVANCED RAYFIELD HUB BETTER
 -- ============================================================
 
 if not game:IsLoaded() then
