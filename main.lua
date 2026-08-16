@@ -1,6 +1,5 @@
 -- ============================================================
---          DELTA EXECUTOR - CRASH-PROOF AIMBOT + ESP + WALLBANG
---                   (NATIVE UI - ZERO HTTP / NO 404)
+--          DELTA EXECUTOR - ADVANCED RAYFIELD HUB
 -- ============================================================
 
 if not game:IsLoaded() then
@@ -11,7 +10,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -20,19 +18,74 @@ Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     Camera = Workspace.CurrentCamera or Workspace:FindFirstChildOfClass("Camera")
 end)
 
--- Einstellungen
-local Settings = {
-    ESP = { Enabled = true, Box = true, Name = true, TeamCheck = true },
-    Aimbot = { Enabled = true, FOV = 120, Smoothness = 0.2, AimKey = Enum.KeyCode.LeftControl, TeamCheck = true },
-    Wallbang = { Enabled = true }
+-- MULTI-MIRROR LOADER MIT RETRY-LOGIK FOR RAYFIELD
+local Rayfield = nil
+local sources = {
+    "https://sirius.menu/rayfield",
+    "https://raw.githubusercontent.com/SiriusMenu/Rayfield/main/source.lua",
+    "https://raw.githubusercontent.com/UI-Libraries/Rayfield/main/source.lua",
+    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"
 }
 
--- FOV Circle
+for _, url in ipairs(sources) do
+    for attempt = 1, 2 do
+        local success, result = pcall(function()
+            local raw = game:HttpGet(url, true)
+            if raw and #raw > 100 then
+                return loadstring(raw)()
+            end
+        end)
+        if success and type(result) == "table" and result.CreateWindow then
+            Rayfield = result
+            break
+        end
+        task.wait(0.2)
+    end
+    if Rayfield then break end
+end
+
+if not Rayfield then
+    warn("Fehler: Rayfield konnte über keinen der verfügbaren Server geladen werden.")
+    return
+end
+
+-- Einstellungen
+local Settings = {
+    Aimbot = {
+        Enabled = true,
+        FOV = 150,
+        Smoothness = 0.2,
+        AimKey = Enum.UserInputType.MouseButton2,
+        TeamCheck = true
+    },
+    FOVCircle = {
+        Visible = true,
+        CenterScreen = true, -- true = Bildschirmmitte, false = Mausposition
+        Radius = 150,
+        Color = Color3.fromRGB(255, 255, 255),
+        Thickness = 1.5,
+        Filled = false,
+        Transparency = 0.7
+    },
+    ESP = {
+        Enabled = true,
+        Box = true,
+        BoxColor = Color3.fromRGB(0, 255, 128),
+        Name = true,
+        NameColor = Color3.fromRGB(255, 255, 255),
+        TeamCheck = true
+    },
+    Wallbang = {
+        Enabled = true
+    }
+}
+
+-- FOV Circle Drawing
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness = 1.5
-FOVCircle.Color = Color3.fromRGB(255, 255, 255)
-FOVCircle.Transparency = 0.7
-FOVCircle.Filled = false
+FOVCircle.Thickness = Settings.FOVCircle.Thickness
+FOVCircle.Color = Settings.FOVCircle.Color
+FOVCircle.Transparency = Settings.FOVCircle.Transparency
+FOVCircle.Filled = Settings.FOVCircle.Filled
 FOVCircle.Visible = false
 
 -- ESP Cache
@@ -47,12 +100,12 @@ local function CreateESP(player)
     }
 
     obj.Box.Thickness = 1.5
-    obj.Box.Color = Color3.fromRGB(0, 255, 128)
+    obj.Box.Color = Settings.ESP.BoxColor
     obj.Box.Filled = false
     obj.Box.Visible = false
 
     obj.NameText.Size = 14
-    obj.NameText.Color = Color3.fromRGB(255, 255, 255)
+    obj.NameText.Color = Settings.ESP.NameColor
     obj.NameText.Center = true
     obj.NameText.Outline = true
     obj.NameText.OutlineColor = Color3.fromRGB(0, 0, 0)
@@ -85,9 +138,17 @@ local function IsEnemy(player)
     return true
 end
 
+local function GetFOVPosition()
+    if Settings.FOVCircle.CenterScreen and Camera then
+        return Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    else
+        return UserInputService:GetMouseLocation()
+    end
+end
+
 local function GetClosestTarget()
     if not Camera then return nil end
-    local mousePos = UserInputService:GetMouseLocation()
+    local originPos = GetFOVPosition()
     local closestPlayer = nil
     local shortestDistance = Settings.Aimbot.FOV
 
@@ -97,7 +158,7 @@ local function GetClosestTarget()
             if head then
                 local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
-                    local distScreen = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    local distScreen = (Vector2.new(screenPos.X, screenPos.Y) - originPos).Magnitude
                     if distScreen < shortestDistance then
                         shortestDistance = distScreen
                         closestPlayer = player
@@ -135,6 +196,7 @@ local function UpdateESP()
 
                     obj.Box.Size = Vector2.new(width, height)
                     obj.Box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+                    obj.Box.Color = Settings.ESP.BoxColor
                     obj.Box.Visible = true
                 else
                     if obj.Box then obj.Box.Visible = false end
@@ -143,6 +205,7 @@ local function UpdateESP()
                 if Settings.ESP.Name and obj.NameText then
                     obj.NameText.Position = Vector2.new(pos.X, pos.Y - (obj.Box.Size.Y / 2) - 15)
                     obj.NameText.Text = player.DisplayName or player.Name
+                    obj.NameText.Color = Settings.ESP.NameColor
                     obj.NameText.Visible = true
                 else
                     if obj.NameText then obj.NameText.Visible = false end
@@ -161,13 +224,13 @@ local currentTarget = nil
 
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
-    if input.KeyCode == Settings.Aimbot.AimKey or input.UserInputType == Enum.UserInputType.MouseButton2 then
+    if input.UserInputType == Settings.Aimbot.AimKey or input.KeyCode == Settings.Aimbot.AimKey then
         aimbotActive = true
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == Settings.Aimbot.AimKey or input.UserInputType == Enum.UserInputType.MouseButton2 then
+    if input.UserInputType == Settings.Aimbot.AimKey or input.KeyCode == Settings.Aimbot.AimKey then
         aimbotActive = false
         currentTarget = nil
     end
@@ -175,10 +238,13 @@ end)
 
 RunService.RenderStepped:Connect(function(delta)
     if FOVCircle then
-        local mouseLoc = UserInputService:GetMouseLocation()
-        FOVCircle.Position = mouseLoc
+        FOVCircle.Position = GetFOVPosition()
         FOVCircle.Radius = Settings.Aimbot.FOV
-        FOVCircle.Visible = Settings.Aimbot.Enabled
+        FOVCircle.Color = Settings.FOVCircle.Color
+        FOVCircle.Thickness = Settings.FOVCircle.Thickness
+        FOVCircle.Filled = Settings.FOVCircle.Filled
+        FOVCircle.Transparency = Settings.FOVCircle.Transparency
+        FOVCircle.Visible = Settings.FOVCircle.Visible and Settings.Aimbot.Enabled
     end
 
     UpdateESP()
@@ -241,81 +307,144 @@ for _, player in ipairs(Players:GetPlayers()) do CreateESP(player) end
 Players.PlayerAdded:Connect(CreateESP)
 Players.PlayerRemoving:Connect(DestroyESP)
 
--- NATIVES SCREEN-GUI ERSTELLEN (KEIN DOWNLOAD ERFORDERLICH)
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "DeltaHubNativeUI"
-ScreenGui.ResetOnSpawn = false
+-- ============================================================
+--                   RAYFIELD UI INTERFACE
+-- ============================================================
 
-pcall(function()
-    ScreenGui.Parent = CoreGui
-end)
-if not ScreenGui.Parent then
-    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
+local Window = Rayfield:CreateWindow({
+    Name = "Delta Hub | Advanced Customization",
+    LoadingTitle = "Lade Rayfield...",
+    LoadingSubtitle = "V5.0 Ultra Robust",
+    ConfigurationSaving = { Enabled = false }
+})
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 240, 0, 280)
-MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
+local AimbotTab = Window:CreateTab("Aimbot", 4483345998)
+local FOVTab = Window:CreateTab("FOV Circle", 4483345998)
+local ESPTab = Window:CreateTab("ESP Settings", 4483345998)
+local MiscTab = Window:CreateTab("Misc", 4483345998)
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = MainFrame
+-- AIMBOT TAB
+AimbotTab:CreateToggle({
+    Name = "Aimbot Aktivieren",
+    CurrentValue = Settings.Aimbot.Enabled,
+    Callback = function(v) Settings.Aimbot.Enabled = v end
+})
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 35)
-Title.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-Title.Text = " Delta Hub (Native) "
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 16
-Title.Font = Enum.Font.SourceSansBold
-Title.Parent = MainFrame
+AimbotTab:CreateSlider({
+    Name = "Smoothness (Glättung)",
+    Range = {0.01, 0.95},
+    Increment = 0.05,
+    CurrentValue = Settings.Aimbot.Smoothness,
+    Callback = function(v) Settings.Aimbot.Smoothness = v end
+})
 
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 8)
-TitleCorner.Parent = Title
+AimbotTab:CreateDropdown({
+    Name = "Aimbot Taste",
+    Options = {"Rechte Maustaste (MB2)", "Linkes Alt", "Linkes Control", "Taste E"},
+    CurrentOption = "Rechte Maustaste (MB2)",
+    Callback = function(option)
+        if option == "Rechte Maustaste (MB2)" then
+            Settings.Aimbot.AimKey = Enum.UserInputType.MouseButton2
+        elseif option == "Linkes Alt" then
+            Settings.Aimbot.AimKey = Enum.KeyCode.LeftAlt
+        elseif option == "Linkes Control" then
+            Settings.Aimbot.AimKey = Enum.KeyCode.LeftControl
+        elseif option == "Taste E" then
+            Settings.Aimbot.AimKey = Enum.KeyCode.E
+        end
+    end
+})
 
-local Container = Instance.new("Frame")
-Container.Size = UDim2.new(1, -20, 1, -45)
-Container.Position = UDim2.new(0, 10, 0, 40)
-Container.BackgroundTransparency = 1
-Container.Parent = MainFrame
+AimbotTab:CreateToggle({
+    Name = "Aimbot Team Check",
+    CurrentValue = Settings.Aimbot.TeamCheck,
+    Callback = function(v) Settings.Aimbot.TeamCheck = v end
+})
 
-local UIList = Instance.new("UIListLayout")
-UIList.SortOrder = Enum.SortOrder.LayoutOrder
-UIList.Padding = UDim.new(0, 8)
-UIList.Parent = Container
+-- FOV TAB
+FOVTab:CreateToggle({
+    Name = "FOV Kreis Anzeigen",
+    CurrentValue = Settings.FOVCircle.Visible,
+    Callback = function(v) Settings.FOVCircle.Visible = v end
+})
 
-local function CreateToggleButton(text, defaultState, callback)
-    local state = defaultState
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 32)
-    btn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 90) or Color3.fromRGB(50, 50, 58)
-    btn.Text = text .. ": " .. (state and "AN" or "AUS")
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.SourceSansSemibold
-    btn.TextSize = 14
-    btn.Parent = Container
+FOVTab:CreateToggle({
+    Name = "In Bildschirmmitte Fixieren",
+    CurrentValue = Settings.FOVCircle.CenterScreen,
+    Callback = function(v) Settings.FOVCircle.CenterScreen = v end
+})
 
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 6)
-    btnCorner.Parent = btn
+FOVTab:CreateSlider({
+    Name = "FOV Kreis Größe (Radius)",
+    Range = {30, 500},
+    Increment = 5,
+    CurrentValue = Settings.Aimbot.FOV,
+    Callback = function(v) 
+        Settings.Aimbot.FOV = v 
+        Settings.FOVCircle.Radius = v
+    end
+})
 
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        btn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 90) or Color3.fromRGB(50, 50, 58)
-        btn.Text = text .. ": " .. (state and "AN" or "AUS")
-        callback(state)
-    end)
-end
+FOVTab:CreateSlider({
+    Name = "Linienstärke (Thickness)",
+    Range = {1, 10},
+    Increment = 0.5,
+    CurrentValue = Settings.FOVCircle.Thickness,
+    Callback = function(v) Settings.FOVCircle.Thickness = v end
+})
 
-CreateToggleButton("Aimbot", Settings.Aimbot.Enabled, function(v) Settings.Aimbot.Enabled = v end)
-CreateToggleButton("ESP Box", Settings.ESP.Box, function(v) Settings.ESP.Box = v end)
-CreateToggleButton("ESP Name", Settings.ESP.Name, function(v) Settings.ESP.Name = v end)
-CreateToggleButton("Team Check", Settings.ESP.TeamCheck, function(v) Settings.ESP.TeamCheck = v end)
-CreateToggleButton("Wallbang", Settings.Wallbang.Enabled, function(v) Settings.Wallbang.Enabled = v end)
+FOVTab:CreateColorPicker({
+    Name = "FOV Kreis Farbe",
+    Color = Settings.FOVCircle.Color,
+    Callback = function(color) Settings.FOVCircle.Color = color end
+})
+
+FOVTab:CreateToggle({
+    Name = "Ausgefüllter Kreis (Filled)",
+    CurrentValue = Settings.FOVCircle.Filled,
+    Callback = function(v) Settings.FOVCircle.Filled = v end
+})
+
+-- ESP TAB
+ESPTab:CreateToggle({
+    Name = "ESP Aktivieren",
+    CurrentValue = Settings.ESP.Enabled,
+    Callback = function(v) Settings.ESP.Enabled = v end
+})
+
+ESPTab:CreateToggle({
+    Name = "Box ESP",
+    CurrentValue = Settings.ESP.Box,
+    Callback = function(v) Settings.ESP.Box = v end
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Box ESP Farbe",
+    Color = Settings.ESP.BoxColor,
+    Callback = function(color) Settings.ESP.BoxColor = color end
+})
+
+ESPTab:CreateToggle({
+    Name = "Name ESP",
+    CurrentValue = Settings.ESP.Name,
+    Callback = function(v) Settings.ESP.Name = v end
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Name ESP Farbe",
+    Color = Settings.ESP.NameColor,
+    Callback = function(color) Settings.ESP.NameColor = color end
+})
+
+ESPTab:CreateToggle({
+    Name = "ESP Team Check",
+    CurrentValue = Settings.ESP.TeamCheck,
+    Callback = function(v) Settings.ESP.TeamCheck = v end
+})
+
+-- MISC TAB
+MiscTab:CreateToggle({
+    Name = "Wallbang (Schüsse durch Wände)",
+    CurrentValue = Settings.Wallbang.Enabled,
+    Callback = function(v) Settings.Wallbang.Enabled = v end
+})
