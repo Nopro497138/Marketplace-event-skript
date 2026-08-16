@@ -1,232 +1,496 @@
--- Rayfield Library laden
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- ============================================================
+--          ULTIMATIVE WALLBANG + ESP + AIMBOT (Rayfield UI)
+--          Kompatibel mit Delta Executor (Roblox)
+-- ============================================================
 
-local Window = Rayfield:CreateWindow({
-   Name = "Celestial Farm | Delta (Fix)",
-   LoadingTitle = "Celestial Auto-Farm",
-   LoadingSubtitle = "Model Search Fixed",
-   ConfigurationSaving = { Enabled = false },
-   Discord = { Enabled = false },
-   KeySystem = false
-})
+-- Lade Rayfield (falls nicht vorhanden)
+local Rayfield
+if not getgenv().Rayfield then
+    local success, err = pcall(function()
+        Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"))()
+    end)
+    if not success then
+        warn("Rayfield konnte nicht geladen werden – verwende Fallback-UI")
+        Rayfield = nil
+    end
+else
+    Rayfield = getgenv().Rayfield
+end
 
-local Tab = Window:CreateTab("Main", 4483362458)
-
--- Variablen & Steuerung
-local _G = _G or {}
-_G.CelestialFarm = false
-
--- Dienste
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
 
--- Hilfsfunktion: Teleportiert sicher zum Ziel
-local function safeTeleport(targetCFrame)
-    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local root = char:FindFirstChild("HumanoidRootPart")
+-- ============================================================
+--                    EINSTELLUNGEN (GUI)
+-- ============================================================
+local Settings = {
+    ESP = {
+        Box = true,
+        Skeleton = true,
+        Name = true
+    },
+    Aimbot = {
+        Enabled = true,      -- generell aktiv
+        FOV = 90,
+        Smoothness = 0.3,
+        AimKey = Enum.KeyCode.LeftControl
+    },
+    Wallbang = {
+        Enabled = true
+    }
+}
+
+-- ============================================================
+--                    DRAWING-OBJEKTE VERWALTEN
+-- ============================================================
+local ESPObjects = {}  -- [Player] = {Box, SkeletonLines, NameText}
+
+local function CreateESP(player)
+    if ESPObjects[player] then return end
+    local obj = {}
+    if Settings.ESP.Box then
+        obj.Box = Drawing.new("Box")
+        obj.Box.Thickness = 1.5
+        obj.Box.Color = Color3.new(0, 1, 0)
+        obj.Box.Transparency = 1
+        obj.Box.Filled = false
+    end
+    if Settings.ESP.Name then
+        obj.NameText = Drawing.new("Text")
+        obj.NameText.Size = 16
+        obj.NameText.Color = Color3.new(1, 1, 1)
+        obj.NameText.Center = true
+        obj.NameText.Outline = true
+        obj.NameText.OutlineColor = Color3.new(0, 0, 0)
+    end
+    if Settings.ESP.Skeleton then
+        obj.SkeletonLines = {}
+        for i = 1, 12 do
+            local line = Drawing.new("Line")
+            line.Thickness = 1.5
+            line.Color = Color3.new(0, 1, 1)
+            line.Transparency = 1
+            table.insert(obj.SkeletonLines, line)
+        end
+    end
+    ESPObjects[player] = obj
+end
+
+local function DestroyESP(player)
+    local obj = ESPObjects[player]
+    if not obj then return end
+    if obj.Box then obj.Box:Remove() end
+    if obj.NameText then obj.NameText:Remove() end
+    if obj.SkeletonLines then
+        for _, line in ipairs(obj.SkeletonLines) do
+            line:Remove()
+        end
+    end
+    ESPObjects[player] = nil
+end
+
+-- ============================================================
+--                    HELFER FÜR SKELETON
+-- ============================================================
+local function GetBonePositions(character)
+    local parts = {
+        Head = character:FindFirstChild("Head"),
+        UpperTorso = character:FindFirstChild("UpperTorso"),
+        LowerTorso = character:FindFirstChild("LowerTorso"),
+        LeftUpperArm = character:FindFirstChild("LeftUpperArm"),
+        LeftLowerArm = character:FindFirstChild("LeftLowerArm"),
+        LeftHand = character:FindFirstChild("LeftHand"),
+        RightUpperArm = character:FindFirstChild("RightUpperArm"),
+        RightLowerArm = character:FindFirstChild("RightLowerArm"),
+        RightHand = character:FindFirstChild("RightHand"),
+        LeftUpperLeg = character:FindFirstChild("LeftUpperLeg"),
+        LeftLowerLeg = character:FindFirstChild("LeftLowerLeg"),
+        LeftFoot = character:FindFirstChild("LeftFoot"),
+        RightUpperLeg = character:FindFirstChild("RightUpperLeg"),
+        RightLowerLeg = character:FindFirstChild("RightLowerLeg"),
+        RightFoot = character:FindFirstChild("RightFoot")
+    }
+    -- Nur existierende Teile mit Position
+    local pos = {}
+    for name, part in pairs(parts) do
+        if part then pos[name] = part.Position end
+    end
+    return pos
+end
+
+local function DrawSkeleton(player, obj)
+    local character = player.Character
+    if not character then return end
+    local pos = GetBonePositions(character)
+    if not pos or not next(pos) then return end
     
-    if not root or not targetCFrame then return end
-
-    -- Noclip aktivieren, damit man nicht im Modell feststeckt
-    local noclipConn
-    noclipConn = RunService.Stepped:Connect(function()
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
+    -- Definiere Verbindungen zwischen Knochen (als Paare)
+    local connections = {
+        {"Head", "UpperTorso"},
+        {"UpperTorso", "LowerTorso"},
+        {"UpperTorso", "LeftUpperArm"},
+        {"LeftUpperArm", "LeftLowerArm"},
+        {"LeftLowerArm", "LeftHand"},
+        {"UpperTorso", "RightUpperArm"},
+        {"RightUpperArm", "RightLowerArm"},
+        {"RightLowerArm", "RightHand"},
+        {"LowerTorso", "LeftUpperLeg"},
+        {"LeftUpperLeg", "LeftLowerLeg"},
+        {"LeftLowerLeg", "LeftFoot"},
+        {"LowerTorso", "RightUpperLeg"},
+        {"RightUpperLeg", "RightLowerLeg"},
+        {"RightLowerLeg", "RightFoot"}
+    }
+    
+    local index = 1
+    for _, conn in ipairs(connections) do
+        local p1 = pos[conn[1]]
+        local p2 = pos[conn[2]]
+        if p1 and p2 and obj.SkeletonLines[index] then
+            local v1, onScreen1 = Camera:WorldToScreenPoint(p1)
+            local v2, onScreen2 = Camera:WorldToScreenPoint(p2)
+            if onScreen1 and onScreen2 then
+                local line = obj.SkeletonLines[index]
+                line.From = Vector2.new(v1.X, v1.Y)
+                line.To = Vector2.new(v2.X, v2.Y)
+                line.Visible = true
+            else
+                obj.SkeletonLines[index].Visible = false
             end
-        end
-    end)
-
-    root.CFrame = targetCFrame
-    task.wait(0.1)
-    
-    if noclipConn then noclipConn:Disconnect() end
-end
-
--- Funktion: Prüft gründlich, ob ein Objekt oder dessen Kinder den Text "Celestial" enthalten
-local function containsCelestialText(obj)
-    if not obj then return false end
-
-    -- 1. Name des Objekts
-    if string.find(string.lower(obj.Name), "celestial") then
-        return true
-    end
-
-    -- 2. Falls ValueBase (StringValue)
-    if obj:IsA("StringValue") and string.find(string.lower(obj.Value), "celestial") then
-        return true
-    end
-
-    -- 3. Falls Text-Property vorhanden ist (TextLabel, TextButton, TextBox, etc.)
-    local success, textValue = pcall(function()
-        return obj.Text
-    end)
-    if success and typeof(textValue) == "string" and string.find(string.lower(textValue), "celestial") then
-        return true
-    end
-
-    return false
-end
-
--- Funktion: Findet die genaue Position/CFrame eines Modells
-local function getModelCFrame(model)
-    if model:IsA("Model") then
-        if model.PrimaryPart then
-            return model.PrimaryPart.CFrame
-        end
-        return model:GetPivot()
-    elseif model:IsA("BasePart") then
-        return model.CFrame
-    end
-
-    -- Fallback: Erstes Part im Modell suchen
-    local part = model:FindFirstChildWhichIsA("BasePart", true)
-    if part then
-        return part.CFrame
-    end
-
-    return nil
-end
-
--- Hauptschleife für die Suche und Interaktion
-local function runCelestialRoutine()
-    local entitiesFolder = workspace:FindFirstChild("EntitiesFolder")
-    if not entitiesFolder then return end
-
-    -- Gehe jedes Modell/Objekt im EntitiesFolder durch
-    for _, model in ipairs(entitiesFolder:GetChildren()) do
-        if not _G.CelestialFarm then break end
-
-        local isMatch = false
-
-        -- Prüfe das Modell selbst
-        if containsCelestialText(model) then
-            isMatch = true
         else
-            -- Durchsuche ALLE Unterobjekte im Modell (UI, Values, Parts, etc.)
-            for _, descendant in ipairs(model:GetDescendants()) do
-                if containsCelestialText(descendant) then
-                    isMatch = true
-                    break
-                end
+            if obj.SkeletonLines[index] then
+                obj.SkeletonLines[index].Visible = false
             end
         end
+        index = index + 1
+    end
+end
 
-        -- Wenn "Celestial" im Modell gefunden wurde
-        if isMatch then
-            local targetCFrame = getModelCFrame(model)
-
-            if targetCFrame then
-                -- 1. Teleportiere direkt zum Modell (leicht erhöht + Offset)
-                safeTeleport(targetCFrame * CFrame.new(0, 2, 0))
-                task.wait(0.2)
-
-                -- 2. Suche nach "TakeBrainrotPrompt" im Modell und drücke ihn
-                local prompt = model:FindFirstChild("TakeBrainrotPrompt", true)
-                if not prompt then
-                    -- Fallback: Nimm irgendeinen ProximityPrompt im Modell
-                    prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-                end
-
-                if prompt and prompt:IsA("ProximityPrompt") then
-                    prompt.Enabled = true
-                    prompt.HoldDuration = 0
-                    prompt.MaxActivationDistance = math.huge
-                    
-                    pcall(function()
-                        fireproximityprompt(prompt)
-                    end)
-                    task.wait(0.2)
-                end
-
-                -- 3. Teleportiere zur Zielkoordinate (19, 4, -847)
-                safeTeleport(CFrame.new(19, 4, -847))
-                task.wait(0.3)
-
-                -- Schleife abbrechen, um von vorne neu im EntitiesFolder zu scannen
-                break
+-- ============================================================
+--                    ESP UPDATE-LOOP
+-- ============================================================
+local function UpdateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local character = player.Character
+        if not character then
+            DestroyESP(player)
+            continue
+        end
+        
+        -- ESP-Objekte erstellen, falls nicht vorhanden
+        if not ESPObjects[player] then
+            CreateESP(player)
+        end
+        local obj = ESPObjects[player]
+        if not obj then continue end
+        
+        -- Box (BoundingBox des Modells)
+        if Settings.ESP.Box and obj.Box then
+            local min, max = character:GetBoundingBox()
+            local center = (min + max) / 2
+            local size = max - min
+            local screenPos, onScreen = Camera:WorldToScreenPoint(center)
+            if onScreen then
+                -- Größe anpassen (die Kamera-Entfernung berücksichtigen)
+                local dist = (Camera.CFrame.Position - center).Magnitude
+                local scale = 200 / math.max(dist, 1)
+                local width = size.X * scale * 0.5
+                local height = size.Y * scale * 0.5
+                obj.Box.Size = Vector2.new(width, height)
+                obj.Box.Position = Vector2.new(screenPos.X - width/2, screenPos.Y - height/2)
+                obj.Box.Visible = true
+            else
+                obj.Box.Visible = false
             end
+        end
+        
+        -- Name
+        if Settings.ESP.Name and obj.NameText then
+            local head = character:FindFirstChild("Head")
+            if head then
+                local pos, onScreen = Camera:WorldToScreenPoint(head.Position + Vector3.new(0, 1.5, 0))
+                if onScreen then
+                    obj.NameText.Position = Vector2.new(pos.X, pos.Y - 20)
+                    obj.NameText.Text = player.Name
+                    obj.NameText.Visible = true
+                else
+                    obj.NameText.Visible = false
+                end
+            else
+                obj.NameText.Visible = false
+            end
+        end
+        
+        -- Skeleton
+        if Settings.ESP.Skeleton and obj.SkeletonLines then
+            DrawSkeleton(player, obj)
+        end
+    end
+    
+    -- Entferne ESP für Spieler, die nicht mehr existieren
+    for player, _ in pairs(ESPObjects) do
+        if not Players:FindFirstChild(player.Name) then
+            DestroyESP(player)
         end
     end
 end
 
--- Toggle: Auto Celestial Farm
-local Toggle = Tab:CreateToggle({
-   Name = "Auto Celestial Farm",
-   CurrentValue = false,
-   Flag = "CelestialToggle",
-   Callback = function(Value)
-      _G.CelestialFarm = Value
+-- ============================================================
+--                    AIMBOT LOGIK
+-- ============================================================
+local aimbotActive = false
+local currentTarget = nil
 
-      if Value then
-          task.spawn(function()
-              while _G.CelestialFarm do
-                  runCelestialRoutine()
-                  task.wait(0.1)
-              end
-          end)
-      end
-   end,
-})
+-- Bestimme nächsten Spieler (nach Distanz zum eigenen Kopf)
+local function GetClosestPlayer()
+    local ownChar = LocalPlayer.Character
+    if not ownChar then return nil end
+    local ownHead = ownChar:FindFirstChild("Head")
+    if not ownHead then return nil end
+    local ownPos = ownHead.Position
+    
+    local closest = nil
+    local minDist = math.huge
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character
+        if not char then continue end
+        local head = char:FindFirstChild("Head")
+        if not head then continue end
+        local dist = (head.Position - ownPos).Magnitude
+        if dist < minDist then
+            minDist = dist
+            closest = player
+        end
+    end
+    return closest
+end
 
--- Button: Loop PlaceStand Remote
-local isPlacingStand = false
+-- Aimbot-Aktion: Kamera auf Kopf ausrichten & Schuss auslösen
+local function PerformAimbot(target)
+    if not target or not target.Character then return end
+    local head = target.Character:FindFirstChild("Head")
+    if not head then return end
+    local headPos = head.Position
+    
+    -- Kamera auf Ziel ausrichten (smooth)
+    local currentCF = Camera.CFrame
+    local targetCF = CFrame.new(currentCF.Position, headPos)
+    if Settings.Aimbot.Smoothness > 0 then
+        -- Smooth Interpolation (Lerp)
+        local newCF = currentCF:Lerp(targetCF, Settings.Aimbot.Smoothness)
+        Camera.CFrame = newCF
+    else
+        Camera.CFrame = targetCF
+    end
+    
+    -- Mausklick simulieren (schießen)
+    -- Viele Executoren haben mouse1click() – falls nicht, alternative Methode
+    if mouse1click then
+        mouse1click()
+    else
+        -- Fallback: Input simulieren (nicht immer möglich)
+        local mouse = LocalPlayer:GetMouse()
+        if mouse and mouse.Button1Down then
+            mouse.Button1Down()
+            wait(0.01)
+            mouse.Button1Up()
+        end
+    end
+end
 
-local Button = Tab:CreateButton({
-   Name = "Loop PlaceStand Remote",
-   Callback = function()
-      if isPlacingStand then return end
+-- ============================================================
+--                    WALLBANG-HOOK (FireServer)
+-- ============================================================
+local function SetupWallbang()
+    -- Finde das CheckShotEvent (wie zuvor)
+    local CheckShotEvent = nil
+    for _, v in ipairs(game:GetDescendants()) do
+        if v:IsA("RemoteEvent") and (v.Name == "CheckShotEvent" or string.find(v.Name, "Check") and string.find(v.Name, "Shot")) then
+            CheckShotEvent = v
+            break
+        end
+    end
+    if not CheckShotEvent then
+        warn("Wallbang: CheckShotEvent nicht gefunden – Wallbang deaktiviert")
+        return
+    end
+    
+    local oldFire = CheckShotEvent.FireServer
+    hookfunction(oldFire, function(self, ...)
+        local args = {...}
+        -- args: AmmoCount, Spread, MaxAmmo, ReloadTime, CamCFrame, Endpoint, HitInstance, NewSeed, BulletId
+        -- Position 6 = Endpoint, 7 = HitInstance
+        
+        if Settings.Wallbang.Enabled and aimbotActive then
+            local target = currentTarget or GetClosestPlayer()
+            if target and target.Character then
+                local head = target.Character:FindFirstChild("Head")
+                if head then
+                    args[6] = head.Position
+                    args[7] = head
+                    -- Optional: kleinen Spread hinzufügen für weniger Auffälligkeit
+                    -- args[6] = args[6] + Vector3.new(math.random(-50,50)/100, math.random(-50,50)/100, 0)
+                end
+            end
+        end
+        
+        return oldFire(self, unpack(args))
+    end)
+    print("Wallbang-Hook aktiviert")
+end
 
-      task.spawn(function()
-          isPlacingStand = true
-          
-          local utilities = ReplicatedStorage:WaitForChild("Utilities", 5)
-          local typedRemote = utilities and utilities:WaitForChild("TypedRemote", 5)
-          local placeStand = typedRemote and typedRemote:WaitForChild("PlaceStand", 5)
+-- ============================================================
+--                    TASTENABFRAGE (Left Ctrl)
+-- ============================================================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Settings.Aimbot.AimKey then
+        aimbotActive = true
+        -- Sofort Ziel finden
+        currentTarget = GetClosestPlayer()
+    end
+end)
 
-          if not placeStand then
-              Rayfield:Notify({
-                  Title = "Fehler",
-                  Content = "PlaceStand Remote nicht gefunden!",
-                  Duration = 4,
-                  Image = 4483362458,
-              })
-              isPlacingStand = false
-              return
-          end
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.KeyCode == Settings.Aimbot.AimKey then
+        aimbotActive = false
+        currentTarget = nil
+    end
+end)
 
-          Rayfield:Notify({
-              Title = "PlaceStand Loop",
-              Content = "Starte Schleife ab 1...",
-              Duration = 3,
-              Image = 4483362458,
-          })
+-- Kontinuierlicher Aimbot, wenn aktiv
+RunService.Heartbeat:Connect(function()
+    if aimbotActive and Settings.Aimbot.Enabled then
+        local target = GetClosestPlayer()
+        if target then
+            currentTarget = target
+            PerformAimbot(target)
+        end
+    end
+end)
 
-          local currentNum = 1
-          while true do
-              local success, result = pcall(function()
-                  return placeStand:InvokeServer(currentNum)
-              end)
+-- ============================================================
+--                    ESP UPDATE (jeder Frame)
+-- ============================================================
+RunService.RenderStepped:Connect(function()
+    UpdateESP()
+end)
 
-              if not success then
-                  Rayfield:Notify({
-                      Title = "Schleife Gestoppt",
-                      Content = "Error bei Zahl " .. tostring(currentNum) .. "!",
-                      Duration = 5,
-                      Image = 4483362458,
-                  })
-                  break
-              end
+-- ============================================================
+--                    SPIELER-HINZUFÜGEN / ENTFERNEN
+-- ============================================================
+Players.PlayerAdded:Connect(function(player)
+    -- ESP wird bei nächstem Update erstellt
+end)
 
-              currentNum = currentNum + 1
-              task.wait(0.05)
-          end
+Players.PlayerRemoving:Connect(function(player)
+    DestroyESP(player)
+end)
 
-          isPlacingStand = false
-      end)
-   end,
-})
+-- ============================================================
+--                    RAYFIELD UI
+-- ============================================================
+if Rayfield then
+    local Window = Rayfield:CreateWindow({
+        Name = "Aimbot + ESP",
+        LoadingTitle = "Lade...",
+        LoadingSubtitle = "by DeinName",
+        ConfigurationSaving = {
+            Enabled = true,
+            FolderName = "MyScripts"
+        }
+    })
+    
+    local ESPTab = Window:CreateTab("ESP")
+    local AimbotTab = Window:CreateTab("Aimbot")
+    local MiscTab = Window:CreateTab("Misc")
+    
+    -- ESP Toggles
+    ESPTab:CreateToggle({
+        Name = "Box",
+        CurrentValue = Settings.ESP.Box,
+        Flag = "ESPBox",
+        Callback = function(val)
+            Settings.ESP.Box = val
+        end
+    })
+    ESPTab:CreateToggle({
+        Name = "Skeleton",
+        CurrentValue = Settings.ESP.Skeleton,
+        Flag = "ESPSkeleton",
+        Callback = function(val)
+            Settings.ESP.Skeleton = val
+        end
+    })
+    ESPTab:CreateToggle({
+        Name = "Name",
+        CurrentValue = Settings.ESP.Name,
+        Flag = "ESPName",
+        Callback = function(val)
+            Settings.ESP.Name = val
+        end
+    })
+    
+    -- Aimbot Toggle
+    AimbotTab:CreateToggle({
+        Name = "Aimbot aktivieren",
+        CurrentValue = Settings.Aimbot.Enabled,
+        Flag = "AimbotEnabled",
+        Callback = function(val)
+            Settings.Aimbot.Enabled = val
+        end
+    })
+    AimbotTab:CreateSlider({
+        Name = "Smoothness (0 = sofort)",
+        Range = {0, 1},
+        Increment = 0.05,
+        CurrentValue = Settings.Aimbot.Smoothness,
+        Flag = "AimSmooth",
+        Callback = function(val)
+            Settings.Aimbot.Smoothness = val
+        end
+    })
+    AimbotTab:CreateKeybind({
+        Name = "Aim-Taste",
+        CurrentKeybind = "LeftControl",
+        Hold = true,
+        Flag = "AimKey",
+        Callback = function(key)
+            -- Key wird als Enum zurückgegeben
+            Settings.Aimbot.AimKey = key
+        end
+    })
+    
+    -- Wallbang Toggle
+    MiscTab:CreateToggle({
+        Name = "Wallbang (durch Wände schießen)",
+        CurrentValue = Settings.Wallbang.Enabled,
+        Flag = "Wallbang",
+        Callback = function(val)
+            Settings.Wallbang.Enabled = val
+        end
+    })
+    
+    print("Rayfield UI erfolgreich erstellt")
+else
+    print("Rayfield nicht verfügbar – UI fällt aus, aber Funktionen laufen weiter.")
+end
+
+-- ============================================================
+--                    INITIALISIERUNG
+-- ============================================================
+SetupWallbang()
+
+-- Sicherstellen, dass ESP für alle aktuellen Spieler erstellt wird
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        CreateESP(player)
+    end
+end
+
+print("Skript geladen – Wallbang, ESP und Aimbot sind bereit!")
