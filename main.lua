@@ -1,12 +1,12 @@
 -- ============================================================
---          STABILES WALLBANG + ESP + AIMBOT (Rayfield UI)
---          Optimiert für Delta Executor (Keine Crashes mehr)
+--          DELTA EXECUTOR - CRASH-PROOF AIMBOT + ESP + WALLBANG
 -- ============================================================
 
--- 1. RAYFIELD DIRECT LOAD
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+-- 1. WARTEN BIS SPIEL VOLLSTÄNDIG GELADEN IST
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
 
--- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -15,19 +15,27 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Kamera-Referenz halten
+-- Rayfield UI (Offizieller Sirius-Source mit pcall-Schutz)
+local Rayfield
+local success, err = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/SiriusMenu/Rayfield/main/source.lua"))()
+end)
+
+if not success or not Rayfield then
+    warn("Rayfield konnte nicht geladen werden:", err)
+    return
+end
+
+-- Kamera-Referenz automatisch erneuern
 Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     Camera = Workspace.CurrentCamera or Workspace:FindFirstChildOfClass("Camera")
 end)
 
--- ============================================================
---                    EINSTELLUNGEN (SETTINGS)
--- ============================================================
+-- Einstellungen
 local Settings = {
     ESP = {
         Enabled = true,
         Box = true,
-        Skeleton = false, -- Standardmäßig AUS zur FPS-Schonung auf Mobilgeräten
         Name = true,
         TeamCheck = true
     },
@@ -43,9 +51,7 @@ local Settings = {
     }
 }
 
--- ============================================================
---                 DRAWING FOV CIRCLE & ESP CACHE
--- ============================================================
+-- FOV Circle
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Thickness = 1.5
 FOVCircle.Color = Color3.fromRGB(255, 255, 255)
@@ -53,15 +59,15 @@ FOVCircle.Transparency = 0.7
 FOVCircle.Filled = false
 FOVCircle.Visible = false
 
-local ESPObjects = {} -- [Player] = {Box, NameText, SkeletonLines = {}}
+-- ESP Cache
+local ESPObjects = {}
 
 local function CreateESP(player)
-    if ESPObjects[player] then return end
+    if ESPObjects[player] or player == LocalPlayer then return end
     
     local obj = {
         Box = Drawing.new("Square"),
-        NameText = Drawing.new("Text"),
-        SkeletonLines = {}
+        NameText = Drawing.new("Text")
     }
 
     obj.Box.Thickness = 1.5
@@ -76,7 +82,6 @@ local function CreateESP(player)
     obj.NameText.OutlineColor = Color3.fromRGB(0, 0, 0)
     obj.NameText.Visible = false
 
-    -- Skeleton-Linien dynamisch erst bei Aktivierung erzeugen
     ESPObjects[player] = obj
 end
 
@@ -84,20 +89,13 @@ local function DestroyESP(player)
     local obj = ESPObjects[player]
     if not obj then return end
 
-    if obj.Box then pcall(function() obj.Box:Remove() end) end
-    if obj.NameText then pcall(function() obj.NameText:Remove() end) end
-    if obj.SkeletonLines then
-        for _, line in ipairs(obj.SkeletonLines) do
-            pcall(function() line:Remove() end)
-        end
-    end
+    pcall(function() if obj.Box then obj.Box:Remove() end end)
+    pcall(function() if obj.NameText then obj.NameText:Remove() end end)
 
     ESPObjects[player] = nil
 end
 
--- ============================================================
---                    HELFER-FUNKTIONEN
--- ============================================================
+-- Helfer
 local function IsAlive(player)
     if not player or not player.Character then return false end
     local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
@@ -113,6 +111,7 @@ local function IsEnemy(player)
 end
 
 local function GetClosestTarget()
+    if not Camera then return nil end
     local mousePos = UserInputService:GetMouseLocation()
     local closestPlayer = nil
     local shortestDistance = Settings.Aimbot.FOV
@@ -136,44 +135,23 @@ local function GetClosestTarget()
     return closestPlayer
 end
 
--- ============================================================
---                    ESP RENDERING
--- ============================================================
-local SkeletonConnections = {
-    {"Head", "UpperTorso"},
-    {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"},
-    {"LeftUpperArm", "LeftLowerArm"},
-    {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"},
-    {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"},
-    {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"}
-}
-
+-- ESP Loop
 local function UpdateESP()
     for player, obj in pairs(ESPObjects) do
         if not Players:FindFirstChild(player.Name) or not IsAlive(player) or not IsEnemy(player) or not Settings.ESP.Enabled then
-            obj.Box.Visible = false
-            obj.NameText.Visible = false
-            for _, line in ipairs(obj.SkeletonLines) do line.Visible = false end
+            if obj.Box then obj.Box.Visible = false end
+            if obj.NameText then obj.NameText.Visible = false end
             continue
         end
 
         local char = player.Character
         local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
 
-        if hrp then
+        if hrp and Camera then
             local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
 
             if onScreen then
-                -- Bounding Box
-                if Settings.ESP.Box then
+                if Settings.ESP.Box and obj.Box then
                     local head = char:FindFirstChild("Head")
                     local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or pos
                     local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
@@ -185,64 +163,25 @@ local function UpdateESP()
                     obj.Box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
                     obj.Box.Visible = true
                 else
-                    obj.Box.Visible = false
+                    if obj.Box then obj.Box.Visible = false end
                 end
 
-                -- Name ESP
-                if Settings.ESP.Name then
+                if Settings.ESP.Name and obj.NameText then
                     obj.NameText.Position = Vector2.new(pos.X, pos.Y - (obj.Box.Size.Y / 2) - 15)
                     obj.NameText.Text = player.DisplayName or player.Name
                     obj.NameText.Visible = true
                 else
-                    obj.NameText.Visible = false
+                    if obj.NameText then obj.NameText.Visible = false end
                 end
-
-                -- Skeleton ESP (Erzeugung nur bei Bedarf)
-                if Settings.ESP.Skeleton then
-                    if #obj.SkeletonLines == 0 then
-                        for i = 1, #SkeletonConnections do
-                            local line = Drawing.new("Line")
-                            line.Thickness = 1.5
-                            line.Color = Color3.fromRGB(0, 200, 255)
-                            line.Visible = false
-                            table.insert(obj.SkeletonLines, line)
-                        end
-                    end
-
-                    for index, conn in ipairs(SkeletonConnections) do
-                        local part1 = char:FindFirstChild(conn[1])
-                        local part2 = char:FindFirstChild(conn[2])
-
-                        if part1 and part2 and obj.SkeletonLines[index] then
-                            local v1, vis1 = Camera:WorldToViewportPoint(part1.Position)
-                            local v2, vis2 = Camera:WorldToViewportPoint(part2.Position)
-
-                            if vis1 and vis2 then
-                                local line = obj.SkeletonLines[index]
-                                line.From = Vector2.new(v1.X, v1.Y)
-                                line.To = Vector2.new(v2.X, v2.Y)
-                                line.Visible = true
-                            else
-                                obj.SkeletonLines[index].Visible = false
-                            end
-                        end
-                    end
-                else
-                    for _, line in ipairs(obj.SkeletonLines) do line.Visible = false end
-                end
-
             else
-                obj.Box.Visible = false
-                obj.NameText.Visible = false
-                for _, line in ipairs(obj.SkeletonLines) do line.Visible = false end
+                if obj.Box then obj.Box.Visible = false end
+                if obj.NameText then obj.NameText.Visible = false end
             end
         end
     end
 end
 
--- ============================================================
---                    AIMBOT LOGIK
--- ============================================================
+-- Aimbot State
 local aimbotActive = false
 local currentTarget = nil
 
@@ -261,14 +200,16 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 RunService.RenderStepped:Connect(function(delta)
-    local mouseLoc = UserInputService:GetMouseLocation()
-    FOVCircle.Position = mouseLoc
-    FOVCircle.Radius = Settings.Aimbot.FOV
-    FOVCircle.Visible = Settings.Aimbot.Enabled
+    if FOVCircle then
+        local mouseLoc = UserInputService:GetMouseLocation()
+        FOVCircle.Position = mouseLoc
+        FOVCircle.Radius = Settings.Aimbot.FOV
+        FOVCircle.Visible = Settings.Aimbot.Enabled
+    end
 
     UpdateESP()
 
-    if aimbotActive and Settings.Aimbot.Enabled then
+    if aimbotActive and Settings.Aimbot.Enabled and Camera then
         if not currentTarget or not IsAlive(currentTarget) then
             currentTarget = GetClosestTarget()
         end
@@ -284,77 +225,57 @@ RunService.RenderStepped:Connect(function(delta)
     end
 end)
 
--- ============================================================
---           SICHERER WALLBANG HOOK (Gezieltes Hooking)
--- ============================================================
-local function InitWallbang()
-    -- Suche gezielt nach dem RemoteEvent im Spiel
-    local targetRemote = nil
-    for _, desc in ipairs(game:GetDescendants()) do
-        if desc:IsA("RemoteEvent") then
-            local n = desc.Name:lower()
-            if n:find("shot") or n:find("bullet") or n:find("checkshot") then
-                targetRemote = desc
-                break
-            end
-        end
-    end
+-- SICHERER WALLBANG HOOK VIA METATABLE (Kein hookfunction auf Instance-Methoden!)
+local function SetupWallbang()
+    if not hookmetamethod then return end
 
-    if not targetRemote then
-        warn("Wallbang: Kein Schuss-Event im Spiel gefunden.")
-        return
-    end
-
-    -- Hooke NUR die FireServer-Methode dieser speziellen Instanz anstatt des gesamten Spiels
-    if typeof(hookfunction) == "function" then
-        local oldFireServer
-        oldFireServer = hookfunction(targetRemote.FireServer, function(self, ...)
-            local args = {...}
-            if Settings.Wallbang.Enabled and aimbotActive then
-                local target = currentTarget or GetClosestTarget()
-                if target and target.Character then
-                    local head = target.Character:FindFirstChild("Head")
-                    if head then
-                        for i, arg in ipairs(args) do
-                            if typeof(arg) == "Vector3" then
-                                args[i] = head.Position
-                            elseif typeof(arg) == "Instance" and arg:IsA("BasePart") then
-                                args[i] = head
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        
+        if Settings.Wallbang.Enabled and aimbotActive and not checkcaller() then
+            if method == "FireServer" or method == "fireServer" then
+                if typeof(self) == "Instance" and self:IsA("RemoteEvent") then
+                    local name = self.Name:lower()
+                    if name:find("shot") or name:find("bullet") or name:find("check") or name:find("hit") or name:find("damage") then
+                        local target = currentTarget or GetClosestTarget()
+                        if target and target.Character then
+                            local head = target.Character:FindFirstChild("Head")
+                            if head then
+                                local args = {...}
+                                for i = 1, #args do
+                                    if typeof(args[i]) == "Vector3" then
+                                        args[i] = head.Position
+                                    elseif typeof(args[i]) == "Instance" and args[i]:IsA("BasePart") then
+                                        args[i] = head
+                                    end
+                                end
+                                return oldNamecall(self, unpack(args))
                             end
                         end
                     end
                 end
             end
-            return oldFireServer(self, unpack(args))
-        end)
-    end
+        end
+        return oldNamecall(self, ...)
+    end)
 end
 
--- Asynchrone Ausführung des Wallbang-Hooks verhindert Einfrieren des Haupt-Threads
-task.defer(InitWallbang)
+pcall(SetupWallbang)
 
--- ============================================================
---                 SPIELER-HANDLING
--- ============================================================
+-- Player Management
 for _, player in ipairs(Players:GetPlayers()) do
-    if player ~= LocalPlayer then CreateESP(player) end
+    CreateESP(player)
 end
 
-Players.PlayerAdded:Connect(function(player)
-    if player ~= LocalPlayer then CreateESP(player) end
-end)
+Players.PlayerAdded:Connect(CreateESP)
+Players.PlayerRemoving:Connect(DestroyESP)
 
-Players.PlayerRemoving:Connect(function(player)
-    DestroyESP(player)
-end)
-
--- ============================================================
---                 RAYFIELD UI INITIALISIERUNG
--- ============================================================
+-- UI Creation
 local Window = Rayfield:CreateWindow({
     Name = "Delta Hub | Wallbang + ESP",
     LoadingTitle = "Lade Skript...",
-    LoadingSubtitle = "V3.0 Stability Patch",
+    LoadingSubtitle = "V4.0 Safe Execution",
     ConfigurationSaving = { Enabled = false }
 })
 
@@ -362,7 +283,6 @@ local MainTab = Window:CreateTab("Aimbot")
 local ESPTab = Window:CreateTab("ESP")
 local MiscTab = Window:CreateTab("Misc")
 
--- Aimbot Controls
 MainTab:CreateToggle({
     Name = "Aimbot Aktivieren",
     CurrentValue = Settings.Aimbot.Enabled,
@@ -378,14 +298,13 @@ MainTab:CreateSlider({
 })
 
 MainTab:CreateSlider({
-    Name = "Smoothness (Höher = Langsamer)",
+    Name = "Smoothness",
     Range = {0.01, 0.95},
     Increment = 0.05,
     CurrentValue = Settings.Aimbot.Smoothness,
     Callback = function(v) Settings.Aimbot.Smoothness = v end
 })
 
--- ESP Controls
 ESPTab:CreateToggle({
     Name = "ESP Aktivieren",
     CurrentValue = Settings.ESP.Enabled,
@@ -396,12 +315,6 @@ ESPTab:CreateToggle({
     Name = "Box ESP",
     CurrentValue = Settings.ESP.Box,
     Callback = function(v) Settings.ESP.Box = v end
-})
-
-ESPTab:CreateToggle({
-    Name = "Skeleton ESP",
-    CurrentValue = Settings.ESP.Skeleton,
-    Callback = function(v) Settings.ESP.Skeleton = v end
 })
 
 ESPTab:CreateToggle({
@@ -416,7 +329,6 @@ ESPTab:CreateToggle({
     Callback = function(v) Settings.ESP.TeamCheck = v end
 })
 
--- Wallbang Control
 MiscTab:CreateToggle({
     Name = "Wallbang (Durch Wände)",
     CurrentValue = Settings.Wallbang.Enabled,
