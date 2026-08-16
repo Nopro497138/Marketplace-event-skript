@@ -1,5 +1,6 @@
 -- ============================================================
 --          DELTA EXECUTOR - CRASH-PROOF AIMBOT + ESP + WALLBANG
+--                     (ORION UI EDITION)
 -- ============================================================
 
 -- 1. WARTEN BIS SPIEL VOLLSTÄNDIG GELADEN IST
@@ -15,26 +16,14 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Rayfield UI (Mit Auto-Fallback gegen 404-Fehler)
-local Rayfield
-local urls = {
-    "https://sirius.menu/rayfield",
-    "https://raw.githubusercontent.com/SiriusMenu/Rayfield/main/source.lua",
-    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"
-}
+-- Orion Library Laden
+local OrionLib
+local success, err = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
+end)
 
-for _, url in ipairs(urls) do
-    local success, result = pcall(function()
-        return loadstring(game:HttpGet(url))()
-    end)
-    if success and result then
-        Rayfield = result
-        break
-    end
-end
-
-if not Rayfield then
-    warn("Rayfield konnte über keine der Quellen geladen werden.")
+if not success or not OrionLib then
+    warn("Orion Library konnte nicht geladen werden:", err)
     return
 end
 
@@ -283,66 +272,87 @@ end
 Players.PlayerAdded:Connect(CreateESP)
 Players.PlayerRemoving:Connect(DestroyESP)
 
--- UI Creation
-local Window = Rayfield:CreateWindow({
+-- Orion UI Fenster erstellen
+local Window = OrionLib:MakeWindow({
     Name = "Delta Hub | Wallbang + ESP",
-    LoadingTitle = "Lade Skript...",
-    LoadingSubtitle = "V4.1 Fix 404",
-    ConfigurationSaving = { Enabled = false }
+    HidePremium = true,
+    SaveConfig = false,
+    ConfigFolder = "DeltaHubConfig"
 })
 
-local MainTab = Window:CreateTab("Aimbot")
-local ESPTab = Window:CreateTab("ESP")
-local MiscTab = Window:CreateTab("Misc")
+local MainTab = Window:MakeTab({
+    Name = "Aimbot",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
 
-MainTab:CreateToggle({
+local ESPTab = Window:MakeTab({
+    Name = "ESP",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local MiscTab = Window:MakeTab({
+    Name = "Misc",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+-- Controls
+MainTab:AddToggle({
     Name = "Aimbot Aktivieren",
-    CurrentValue = Settings.Aimbot.Enabled,
+    Default = Settings.Aimbot.Enabled,
     Callback = function(v) Settings.Aimbot.Enabled = v end
 })
 
-MainTab:CreateSlider({
+MainTab:AddSlider({
     Name = "Aimbot FOV Radius",
-    Range = {30, 400},
+    Min = 30,
+    Max = 400,
+    Default = Settings.Aimbot.FOV,
     Increment = 5,
-    CurrentValue = Settings.Aimbot.FOV,
+    ValueName = "px",
     Callback = function(v) Settings.Aimbot.FOV = v end
 })
 
-MainTab:CreateSlider({
+MainTab:AddSlider({
     Name = "Smoothness",
-    Range = {0.01, 0.95},
+    Min = 0.01,
+    Max = 0.95,
+    Default = Settings.Aimbot.Smoothness,
     Increment = 0.05,
-    CurrentValue = Settings.Aimbot.Smoothness,
+    ValueName = "",
     Callback = function(v) Settings.Aimbot.Smoothness = v end
 })
 
-ESPTab:CreateToggle({
+ESPTab:AddToggle({
     Name = "ESP Aktivieren",
-    CurrentValue = Settings.ESP.Enabled,
+    Default = Settings.ESP.Enabled,
     Callback = function(v) Settings.ESP.Enabled = v end
 })
 
-ESPTab:CreateToggle({
+ESPTab:AddToggle({
     Name = "Box ESP",
-    CurrentValue = Settings.ESP.Box,
+    Default = Settings.ESP.Box,
     Callback = function(v) Settings.ESP.Box = v end
 })
 
-ESPTab:CreateToggle({
+ESPTab:AddToggle({
     Name = "Name ESP",
-    CurrentValue = Settings.ESP.Name,
+    Default = Settings.ESP.Name,
     Callback = function(v) Settings.ESP.Name = v end
 })
 
-ESPTab:CreateToggle({
+ESPTab:AddToggle({
     Name = "Team Check",
-    CurrentValue = Settings.ESP.TeamCheck,
+    Default = Settings.ESP.TeamCheck,
     Callback = function(v) Settings.ESP.TeamCheck = v end
 })
 
-MiscTab:CreateToggle({
+MiscTab:AddToggle({
     Name = "Wallbang (Durch Wände)",
-    CurrentValue = Settings.Wallbang.Enabled,
+    Default = Settings.Wallbang.Enabled,
     Callback = function(v) Settings.Wallbang.Enabled = v end
 })
+
+OrionLib:Init()
