@@ -15,14 +15,26 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Rayfield UI (Offizieller Sirius-Source mit pcall-Schutz)
+-- Rayfield UI (Mit Auto-Fallback gegen 404-Fehler)
 local Rayfield
-local success, err = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/SiriusMenu/Rayfield/main/source.lua"))()
-end)
+local urls = {
+    "https://sirius.menu/rayfield",
+    "https://raw.githubusercontent.com/SiriusMenu/Rayfield/main/source.lua",
+    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"
+}
 
-if not success or not Rayfield then
-    warn("Rayfield konnte nicht geladen werden:", err)
+for _, url in ipairs(urls) do
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet(url))()
+    end)
+    if success and result then
+        Rayfield = result
+        break
+    end
+end
+
+if not Rayfield then
+    warn("Rayfield konnte über keine der Quellen geladen werden.")
     return
 end
 
@@ -225,7 +237,7 @@ RunService.RenderStepped:Connect(function(delta)
     end
 end)
 
--- SICHERER WALLBANG HOOK VIA METATABLE (Kein hookfunction auf Instance-Methoden!)
+-- SICHERER WALLBANG HOOK VIA METATABLE
 local function SetupWallbang()
     if not hookmetamethod then return end
 
@@ -275,7 +287,7 @@ Players.PlayerRemoving:Connect(DestroyESP)
 local Window = Rayfield:CreateWindow({
     Name = "Delta Hub | Wallbang + ESP",
     LoadingTitle = "Lade Skript...",
-    LoadingSubtitle = "V4.0 Safe Execution",
+    LoadingSubtitle = "V4.1 Fix 404",
     ConfigurationSaving = { Enabled = false }
 })
 
