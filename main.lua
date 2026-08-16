@@ -60,7 +60,7 @@ local Settings = {
     },
     FOVCircle = {
         Visible = true,
-        CenterScreen = true, -- true = Bildschirmmitte, false = Mausposition
+        CenterScreen = true,
         Radius = 150,
         Color = Color3.fromRGB(255, 255, 255),
         Thickness = 1.5,
@@ -265,40 +265,45 @@ RunService.RenderStepped:Connect(function(delta)
     end
 end)
 
--- Wallbang Hook
+-- ============================================================
+--                 GEZIELTER WALLBANG-HOOK (OHNE METAMETHODEN)
+-- ============================================================
 local function SetupWallbang()
-    if not hookmetamethod then return end
+    local CheckShotEvent = nil
+    for _, v in ipairs(game:GetDescendants()) do
+        if v:IsA("RemoteEvent") then
+            local name = v.Name:lower()
+            if name:find("checkshot") or (name:find("check") and name:find("shot")) then
+                CheckShotEvent = v
+                break
+            end
+        end
+    end
 
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        
-        if Settings.Wallbang.Enabled and aimbotActive and not checkcaller() then
-            if method == "FireServer" or method == "fireServer" then
-                if typeof(self) == "Instance" and self:IsA("RemoteEvent") then
-                    local name = self.Name:lower()
-                    if name:find("shot") or name:find("bullet") or name:find("check") or name:find("hit") or name:find("damage") then
-                        local target = currentTarget or GetClosestTarget()
-                        if target and target.Character then
-                            local head = target.Character:FindFirstChild("Head")
-                            if head then
-                                local args = {...}
-                                for i = 1, #args do
-                                    if typeof(args[i]) == "Vector3" then
-                                        args[i] = head.Position
-                                    elseif typeof(args[i]) == "Instance" and args[i]:IsA("BasePart") then
-                                        args[i] = head
-                                    end
-                                end
-                                return oldNamecall(self, unpack(args))
-                            end
-                        end
+    if not CheckShotEvent then
+        warn("Wallbang: CheckShotEvent nicht gefunden")
+        return
+    end
+
+    local oldFire = CheckShotEvent.FireServer
+    CheckShotEvent.FireServer = function(self, ...)
+        local args = {...}
+        if Settings.Wallbang.Enabled and aimbotActive then
+            local target = currentTarget or GetClosestTarget()
+            if target and target.Character then
+                local head = target.Character:FindFirstChild("Head")
+                if head then
+                    -- Ersetze Endpoint (Index 6) und HitInstance (Index 7)
+                    if #args >= 7 then
+                        args[6] = head.Position   -- Endpoint
+                        args[7] = head            -- getroffene Instanz
                     end
                 end
             end
         end
-        return oldNamecall(self, ...)
-    end)
+        return oldFire(self, unpack(args))
+    end
+    print("Wallbang-Hook aktiviert (gezielt auf CheckShotEvent)")
 end
 
 pcall(SetupWallbang)
