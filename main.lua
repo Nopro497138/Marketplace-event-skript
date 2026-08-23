@@ -1,4 +1,4 @@
--- Rayfield Library Laden
+-- Rayfield Library Laden yolo
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
@@ -193,22 +193,25 @@ local function safeFirePrompt(prompt)
     return true
 end
 
--- Triggert den UpgradeButton (ProximityPrompt, ClickDetector oder TextButton)
-local function triggerUpgradeButton(upgradeObj)
+-- Triggert das UpgradePart (Touch, ProximityPrompt, ClickDetector oder TextButton)
+local function triggerUpgradePart(upgradeObj)
     if not upgradeObj then return end
 
+    -- 1. ProximityPrompt Prüfen
     local prompt = upgradeObj:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
         safeFirePrompt(prompt)
         return
     end
 
+    -- 2. ClickDetector Prüfen
     local cd = upgradeObj:FindFirstChildWhichIsA("ClickDetector", true)
     if cd and fireclickdetector then
         fireclickdetector(cd)
         return
     end
 
+    -- 3. UI Buttons (TextButton / ImageButton)
     local btn = upgradeObj:FindFirstChildWhichIsA("TextButton", true) or upgradeObj:FindFirstChildWhichIsA("ImageButton", true)
     if btn then
         if firesignal then
@@ -218,6 +221,19 @@ local function triggerUpgradeButton(upgradeObj)
             pcall(function()
                 for _, conn in pairs(getconnections(btn.MouseButton1Click)) do conn:Fire() end
                 for _, conn in pairs(getconnections(btn.Activated)) do conn:Fire() end
+            end)
+        end
+        return
+    end
+
+    -- 4. Touch-Trigger für UpgradePart
+    local targetPart = upgradeObj:IsA("BasePart") and upgradeObj or upgradeObj:FindFirstChildWhichIsA("BasePart", true)
+    if targetPart then
+        if firetouchinterest and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            pcall(function()
+                firetouchinterest(LocalPlayer.Character.HumanoidRootPart, targetPart, 0)
+                task.wait(0.02)
+                firetouchinterest(LocalPlayer.Character.HumanoidRootPart, targetPart, 1)
             end)
         end
     end
@@ -267,7 +283,7 @@ local function startPlotPlacement()
     end)
 end
 
--- 2. Pickup All (Ohne Items in der Hand)
+-- 2. Pickup All
 local function startPickupAll()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -307,7 +323,7 @@ local function startPickupAll()
     end)
 end
 
--- 3. Cash Auto-Collect (Teleport zu CollectTouch)
+-- 3. Cash Auto-Collect
 local function startAutoCollect()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -344,7 +360,7 @@ local function startAutoCollect()
     end)
 end
 
--- 4. Auto-Upgrade Slots
+-- 4. Auto-Upgrade Slots (sucht nach UpgradePart)
 local function startAutoUpgrade()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -365,7 +381,8 @@ local function startAutoUpgrade()
 
                     unequipAllTools()
 
-                    local upgradeObj = currentSlot:FindFirstChild("UpgradeButton", true)
+                    -- Priorisiert UpgradePart, nutzt UpgradeButton als Fallback
+                    local upgradeObj = currentSlot:FindFirstChild("UpgradePart", true) or currentSlot:FindFirstChild("UpgradeButton", true)
                     if upgradeObj then
                         local targetPos = upgradeObj:IsA("BasePart") and upgradeObj.Position or (upgradeObj.PrimaryPart and upgradeObj.PrimaryPart.Position)
                         if not targetPos then
@@ -378,10 +395,9 @@ local function startAutoUpgrade()
                             task.wait(0.15)
                         end
 
-                        -- Klickt den UpgradeButton x-mal
                         for _ = 1, upgradeAmount do
                             if not runningUpgrade then break end
-                            triggerUpgradeButton(upgradeObj)
+                            triggerUpgradePart(upgradeObj)
                             task.wait(0.08)
                         end
                     end
@@ -486,7 +502,7 @@ Tab:CreateSlider({
 })
 
 Tab:CreateToggle({
-    Name = "Plot Auto-Upgrade (UpgradeButton)",
+    Name = "Plot Auto-Upgrade (UpgradePart)",
     CurrentValue = false,
     Flag = "PlotAutoUpgradeToggle",
     Callback = function(Value)
