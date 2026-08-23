@@ -20,6 +20,13 @@ local returnPos = Vector3.new(155, 3, -86)
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
+-- Multiplikatoren für Geldbeträge
+local SuffixMultipliers = {
+    k = 1e3, m = 1e6, b = 1e9, t = 1e12,
+    qa = 1e15, qi = 1e18, sx = 1e21, sp = 1e24,
+    oc = 1e27, no = 1e30, dc = 1e33
+}
+
 -- Hilfsfunktion: Sicheres Teleportieren
 local function teleportTo(pos)
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -30,76 +37,81 @@ local function teleportTo(pos)
 end
 
 -- ==========================================
--- ROBUSTER PROXIMITY PROMPT TRIGGER
+-- ERWEITERTE GELD-ANALYSE & EVALUIERUNG
 -- ==========================================
-local function safeFirePrompt(prompt)
-    if not prompt or not prompt:IsA("ProximityPrompt") then return false end
 
-    -- Prompt-Eigenschaften temporär für Bypassing anpassen
-    local oldHold = prompt.HoldDuration
-    local oldLOS = prompt.RequiresLineOfSight
-    local oldDist = prompt.MaxActivationDistance
-
-    prompt.HoldDuration = 0
-    prompt.RequiresLineOfSight = false
-    prompt.MaxActivationDistance = 30
-    prompt.Enabled = true
-
-    -- Charakter direkt zum Prompt/Parent ausrichten
-    local parentPart = prompt.Parent
-    if parentPart and parentPart:IsA("BasePart") then
-        teleportTo(parentPart.Position + Vector3.new(0, 2, 0))
+-- Parst Strings wie "$100.5M/s", "100,000,000", "Level 1 (+500k)"
+local function parseMoneyString(str)
+    if not str or type(str) ~= "string" then return 0 end
+    
+    -- Kommas entfernen und Kleinbuchstaben erzwingen
+    local cleaned = string.lower(string.gsub(str, ",", ""))
+    local maxDetectedVal = 0
+    
+    -- Durchsucht JEDE Zahl inklusive folgendem Text im String
+    for numStr, word in string.gmatch(cleaned, "(%d+%.?%d*)%s*([a-z]*)") do
+        local num = tonumber(numStr)
+        if num then
+            local mult = 1
+            if word ~= "" then
+                local s2 = string.sub(word, 1, 2)
+                local s1 = string.sub(word, 1, 1)
+                
+                if SuffixMultipliers[s2] then
+                    mult = SuffixMultipliers[s2]
+                elseif SuffixMultipliers[s1] then
+                    mult = SuffixMultipliers[s1]
+                end
+            end
+            
+            local total = num * mult
+            if total > maxDetectedVal then
+                maxDetectedVal = total
+            end
+        end
     end
-    task.wait(0.1)
-
-    -- Executor-Funktion mit Fallback-Mechanismus
-    local fired = false
-    if fireproximityprompt then
-        pcall(function()
-            fireproximityprompt(prompt)
-            fired = true
-        end)
-    end
-
-    -- Fallback via Roblox Input-Events
-    if not fired then
-        pcall(function()
-            prompt:InputHoldBegin()
-            task.wait(0.05)
-            prompt:InputHoldEnd()
-        end)
-    end
-
-    -- Restoration
-    task.wait(0.1)
-    prompt.HoldDuration = oldHold
-    prompt.RequiresLineOfSight = oldLOS
-    prompt.MaxActivationDistance = oldDist
-
-    return true
+    
+    return maxDetectedVal
 end
 
--- ==========================================
--- BRAINROT WERT-BERECHNUNG & EQUIP LOGIK
--- ==========================================
-local function parseValue(str)
-    if not str then return 0 end
-    local text = string.lower(str)
-    local numStr, suffix = string.match(text, "([%d%.]+)%s*([a-z]*)")
-    if not numStr then return 0 end
-    
-    local num = tonumber(numStr) or 0
-    local multipliers = {
-        k = 1e3, m = 1e6, b = 1e9, t = 1e12, qa = 1e15, qi = 1e18
-    }
-    
-    if suffix and multipliers[suffix] then
-        return num * multipliers[suffix]
+-- Berechnet den absoluten Höchstwert eines Tools
+local function getToolValue(tool)
+    if not tool or not tool:IsA("Tool") then return 0 end
+    local maxVal = 0
+
+    -- 1. Attributes scannen
+    pcall(function()
+        for _, attrVal in pairs(tool:GetAttributes()) do
+            if type(attrVal) == "number" and attrVal > maxVal then
+                maxVal = attrVal
+            elseif type(attrVal) == "string" then
+                local parsed = parseMoneyString(attrVal)
+                if parsed > maxVal then maxVal = parsed end
+            end
+        end
+    end)
+
+    -- 2. Value-Objekte & UI-Texte durchsuchen
+    for _, descendant in ipairs(tool:GetDescendants()) do
+        if descendant:IsA("NumberValue") or descendant:IsA("IntValue") then
+            if descendant.Value > maxVal then maxVal = descendant.Value end
+        elseif descendant:IsA("StringValue") then
+            local parsed = parseMoneyString(descendant.Value)
+            if parsed > maxVal then maxVal = parsed end
+        elseif descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+            local parsed = parseMoneyString(descendant.Text)
+            if parsed > maxVal then maxVal = parsed end
+        end
     end
-    return num
+
+    -- 3. Tool-Namen prüfen
+    local nameParsed = parseMoneyString(tool.Name)
+    if nameParsed > maxVal then maxVal = nameParsed end
+
+    return maxVal
 end
 
--- Sucht das wertvollste Brainrot in Backpack UND Character
+-- Sucht das wertvollste Brainrot in Backpack & Character
 local function getBestBrainrot()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     local character = LocalPlayer.Character
@@ -111,23 +123,9 @@ local function getBestBrainrot()
         if not container then return end
         for _, tool in ipairs(container:GetChildren()) do
             if tool:IsA("Tool") then
-                local toolMaxVal = 0
-                for _, descendant in ipairs(tool:GetDescendants()) do
-                    local textVal = ""
-                    if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
-                        textVal = descendant.Text
-                    elseif descendant:IsA("StringValue") then
-                        textVal = descendant.Value
-                    end
-                    
-                    if textVal ~= "" then
-                        local val = parseValue(textVal)
-                        if val > toolMaxVal then toolMaxVal = val end
-                    end
-                end
-                
-                if toolMaxVal > highestValue then
-                    highestValue = toolMaxVal
+                local toolValue = getToolValue(tool)
+                if toolValue > highestValue then
+                    highestValue = toolValue
                     bestTool = tool
                 end
             end
@@ -137,27 +135,77 @@ local function getBestBrainrot()
     checkContainer(backpack)
     checkContainer(character)
     
+    if bestTool then
+        print("[Auto-Place] Ausgewähltes Item: " .. bestTool.Name .. " | Wert: " .. tostring(highestValue))
+    end
+    
     return bestTool
 end
 
--- Zwingt das Anlegen des angegebenen Tools
+-- Zwingt das Anlegen des Tools
 local function ensureEquipped(tool)
     if not tool or not tool:IsA("Tool") then return end
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     
     if humanoid then
-        -- Falls der Charakter das Tool noch nicht in den Händen hält
         if tool.Parent ~= char then
-            humanoid:UnequipTools() -- Vorherige Items ablegen
+            humanoid:UnequipTools()
             task.wait(0.05)
             humanoid:EquipTool(tool)
-            task.wait(0.2) -- Wartezeit für Ausrüst-Animation / Server-Handshake
+            task.wait(0.2)
         end
     end
 end
 
--- Hauptschleife für Plot Auto-Placement
+-- ==========================================
+-- PROXIMITY PROMPT TRIGGER
+-- ==========================================
+local function safeFirePrompt(prompt)
+    if not prompt or not prompt:IsA("ProximityPrompt") then return false end
+
+    local oldHold = prompt.HoldDuration
+    local oldLOS = prompt.RequiresLineOfSight
+    local oldDist = prompt.MaxActivationDistance
+
+    prompt.HoldDuration = 0
+    prompt.RequiresLineOfSight = false
+    prompt.MaxActivationDistance = 30
+    prompt.Enabled = true
+
+    local parentPart = prompt.Parent
+    if parentPart and parentPart:IsA("BasePart") then
+        teleportTo(parentPart.Position + Vector3.new(0, 2, 0))
+    end
+    task.wait(0.1)
+
+    local fired = false
+    if fireproximityprompt then
+        pcall(function()
+            fireproximityprompt(prompt)
+            fired = true
+        end)
+    end
+
+    if not fired then
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(0.05)
+            prompt:InputHoldEnd()
+        end)
+    end
+
+    task.wait(0.1)
+    prompt.HoldDuration = oldHold
+    prompt.RequiresLineOfSight = oldLOS
+    prompt.MaxActivationDistance = oldDist
+
+    return true
+end
+
+-- ==========================================
+-- PLOT AUTO-PLACE SCHLEIFE
+-- ==========================================
 local function startPlotPlacement()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -189,21 +237,20 @@ local function startPlotPlacement()
                     local currentSlot = slotsFolder:FindFirstChild("Slot" .. slotIndex)
                     if not currentSlot then break end
                     
-                    -- Spawn Part suchen
                     local spawnPart = currentSlot:FindFirstChild("Spawn", true) or currentSlot.PrimaryPart or currentSlot:FindFirstChildWhichIsA("BasePart", true)
                     
                     if spawnPart then
-                        -- 1. Teleport zum Slot
+                        -- Teleport zum Slot
                         teleportTo(spawnPart.Position + Vector3.new(0, 2, 0))
                         task.wait(0.15)
                         
-                        -- 2. Bestes Brainrot suchen & ZWINGEND vor Prompt-Klick ausrüsten
+                        -- Höchstwertiges Item suchen & vor Prompt ausrüsten
                         local bestTool = getBestBrainrot()
                         if bestTool then
                             ensureEquipped(bestTool)
                         end
                         
-                        -- 3. ProximityPrompt auslösen
+                        -- Prompt auslösen
                         local prompt = currentSlot:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
                             safeFirePrompt(prompt)
@@ -222,7 +269,7 @@ local function startPlotPlacement()
 end
 
 -- ==========================================
--- SPAWN 11 FARM LOGIK
+-- SPAWN 11 FARM SCHLEIFE
 -- ==========================================
 local function startSpawnFarm()
     task.spawn(function()
@@ -287,7 +334,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         runningPlot = Value
         if runningPlot then
-            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Rüstet Item aus & drückt Prompt...", Duration = 3})
+            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Wählt wertvollstes Item & platziert...", Duration = 3})
             startPlotPlacement()
         else
             Rayfield:Notify({Title = "Plot-Farm Deaktiviert", Content = "Platzierung gestoppt.", Duration = 3})
