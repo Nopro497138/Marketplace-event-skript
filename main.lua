@@ -35,7 +35,7 @@ end
 local function safeFirePrompt(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") then return false end
 
-    -- 1. Prompt-Eigenschaften temporär für Bypassing anpassen
+    -- Prompt-Eigenschaften temporär für Bypassing anpassen
     local oldHold = prompt.HoldDuration
     local oldLOS = prompt.RequiresLineOfSight
     local oldDist = prompt.MaxActivationDistance
@@ -45,14 +45,14 @@ local function safeFirePrompt(prompt)
     prompt.MaxActivationDistance = 30
     prompt.Enabled = true
 
-    -- 2. Charakter direkt zum Prompt/Parent ausrichten
+    -- Charakter direkt zum Prompt/Parent ausrichten
     local parentPart = prompt.Parent
     if parentPart and parentPart:IsA("BasePart") then
         teleportTo(parentPart.Position + Vector3.new(0, 2, 0))
     end
     task.wait(0.1)
 
-    -- 3. Executor-Funktion mit Fallback-Mechanismus
+    -- Executor-Funktion mit Fallback-Mechanismus
     local fired = false
     if fireproximityprompt then
         pcall(function()
@@ -61,7 +61,7 @@ local function safeFirePrompt(prompt)
         end)
     end
 
-    -- Fallback via Roblox Input-Events (falls fireproximityprompt fehlschlägt)
+    -- Fallback via Roblox Input-Events
     if not fired then
         pcall(function()
             prompt:InputHoldBegin()
@@ -80,7 +80,7 @@ local function safeFirePrompt(prompt)
 end
 
 -- ==========================================
--- BRAINROT WERT-BERECHNUNG & AUTOPLACE
+-- BRAINROT WERT-BERECHNUNG & EQUIP LOGIK
 -- ==========================================
 local function parseValue(str)
     if not str then return 0 end
@@ -99,41 +99,65 @@ local function parseValue(str)
     return num
 end
 
+-- Sucht das wertvollste Brainrot in Backpack UND Character
 local function getBestBrainrot()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not backpack then return nil end
+    local character = LocalPlayer.Character
     
     local bestTool = nil
     local highestValue = -1
     
-    for _, tool in ipairs(backpack:GetChildren()) do
-        if tool:IsA("Tool") then
-            local toolMaxVal = 0
-            
-            for _, descendant in ipairs(tool:GetDescendants()) do
-                local textVal = ""
-                if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
-                    textVal = descendant.Text
-                elseif descendant:IsA("StringValue") then
-                    textVal = descendant.Value
+    local function checkContainer(container)
+        if not container then return end
+        for _, tool in ipairs(container:GetChildren()) do
+            if tool:IsA("Tool") then
+                local toolMaxVal = 0
+                for _, descendant in ipairs(tool:GetDescendants()) do
+                    local textVal = ""
+                    if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+                        textVal = descendant.Text
+                    elseif descendant:IsA("StringValue") then
+                        textVal = descendant.Value
+                    end
+                    
+                    if textVal ~= "" then
+                        local val = parseValue(textVal)
+                        if val > toolMaxVal then toolMaxVal = val end
+                    end
                 end
                 
-                if textVal ~= "" then
-                    local val = parseValue(textVal)
-                    if val > toolMaxVal then toolMaxVal = val end
+                if toolMaxVal > highestValue then
+                    highestValue = toolMaxVal
+                    bestTool = tool
                 end
-            end
-            
-            if toolMaxVal > highestValue then
-                highestValue = toolMaxVal
-                bestTool = tool
             end
         end
     end
+
+    checkContainer(backpack)
+    checkContainer(character)
     
     return bestTool
 end
 
+-- Zwingt das Anlegen des angegebenen Tools
+local function ensureEquipped(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    
+    if humanoid then
+        -- Falls der Charakter das Tool noch nicht in den Händen hält
+        if tool.Parent ~= char then
+            humanoid:UnequipTools() -- Vorherige Items ablegen
+            task.wait(0.05)
+            humanoid:EquipTool(tool)
+            task.wait(0.2) -- Wartezeit für Ausrüst-Animation / Server-Handshake
+        end
+    end
+end
+
+-- Hauptschleife für Plot Auto-Placement
 local function startPlotPlacement()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -165,23 +189,21 @@ local function startPlotPlacement()
                     local currentSlot = slotsFolder:FindFirstChild("Slot" .. slotIndex)
                     if not currentSlot then break end
                     
-                    -- Bestes Brainrot wählen und ausrüsten
-                    local bestTool = getBestBrainrot()
-                    if bestTool then
-                        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-                        if humanoid then
-                            humanoid:EquipTool(bestTool)
-                            task.wait(0.15)
-                        end
-                    end
-                    
-                    -- Spawn Part & Prompt Ausführung
+                    -- Spawn Part suchen
                     local spawnPart = currentSlot:FindFirstChild("Spawn", true) or currentSlot.PrimaryPart or currentSlot:FindFirstChildWhichIsA("BasePart", true)
                     
                     if spawnPart then
+                        -- 1. Teleport zum Slot
                         teleportTo(spawnPart.Position + Vector3.new(0, 2, 0))
-                        task.wait(0.2)
+                        task.wait(0.15)
                         
+                        -- 2. Bestes Brainrot suchen & ZWINGEND vor Prompt-Klick ausrüsten
+                        local bestTool = getBestBrainrot()
+                        if bestTool then
+                            ensureEquipped(bestTool)
+                        end
+                        
+                        -- 3. ProximityPrompt auslösen
                         local prompt = currentSlot:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
                             safeFirePrompt(prompt)
@@ -205,7 +227,6 @@ end
 local function startSpawnFarm()
     task.spawn(function()
         while runningSpawn do
-            -- 1. Start-Teleport zur Überwachungsposition
             teleportTo(startPos)
             task.wait(0.5)
 
@@ -221,17 +242,14 @@ local function startSpawnFarm()
                     local targetPart = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart", true)
 
                     if targetPart then
-                        -- 2. Teleport zum Objekt in Spawn "11"
                         teleportTo(targetPart.Position + Vector3.new(0, 2, 0))
                         task.wait(0.2)
 
-                        -- 3. Robusten Prompt-Trigger ausführen
                         local prompt = targetModel:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
                             safeFirePrompt(prompt)
                         end
 
-                        -- 4. Teleport zur Ziel-Position (155, 3, -86)
                         task.wait(0.2)
                         teleportTo(returnPos)
                         task.wait(0.5)
@@ -254,7 +272,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         runningSpawn = Value
         if runningSpawn then
-            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Starte robuste Item-Farm...", Duration = 3})
+            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Starte Item-Farm...", Duration = 3})
             startSpawnFarm()
         else
             Rayfield:Notify({Title = "Farm Deaktiviert", Content = "Auto-Farm gestoppt.", Duration = 3})
@@ -269,7 +287,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         runningPlot = Value
         if runningPlot then
-            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Starte robuste Slot-Platzierung...", Duration = 3})
+            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Rüstet Item aus & drückt Prompt...", Duration = 3})
             startPlotPlacement()
         else
             Rayfield:Notify({Title = "Plot-Farm Deaktiviert", Content = "Platzierung gestoppt.", Duration = 3})
