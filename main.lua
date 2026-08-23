@@ -31,9 +31,11 @@ end
 local function startSpawnFarm()
     task.spawn(function()
         while running do
-            -- 1. Start-Teleport zur Überwachungsposition
+            -- 1. Start-Teleport zur Überwachungsposition (IMMER als allererstes)
             teleportTo(startPos)
-            task.wait(0.3)
+            task.wait(0.5) -- Genau 0.5 Sekunden warten
+
+            if not running then break end
 
             local itemSpawns = workspace:FindFirstChild("ItemSpawns")
             local folder11 = itemSpawns and itemSpawns:FindFirstChild("11")
@@ -50,7 +52,7 @@ local function startSpawnFarm()
                         teleportTo(targetPart.Position + Vector3.new(0, 3, 0))
                         task.wait(0.2)
 
-                        -- 3. ProximityPrompt / PickupPrompt suchen und sofort auslösen
+                        -- 3. ProximityPrompt / PickupPrompt suchen und auslösen
                         local prompt = targetModel:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
                             fireproximityprompt(prompt)
@@ -64,7 +66,7 @@ local function startSpawnFarm()
                 end
             end
 
-            task.wait(0.5) -- Intervall vor dem nächsten Durchlauf
+            task.wait(0.3) -- Kurze Pause vor dem nächsten Ablauf
         end
     end)
 end
@@ -77,7 +79,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         running = Value
         if running then
-            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Überwache Spawn 11...", Duration = 3})
+            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Starte mit Überwachungsposition...", Duration = 3})
             startSpawnFarm()
         else
             Rayfield:Notify({Title = "Farm Deaktiviert", Content = "Auto-Farm gestoppt.", Duration = 3})
