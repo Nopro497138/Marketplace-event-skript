@@ -12,6 +12,7 @@ local Tab = Window:CreateTab("Auto Farm", 4483362458)
 
 -- Variablen & Positionen
 local running = false
+local startPos = Vector3.new(-104, 2673, 2163)
 local returnPos = Vector3.new(155, 3, -86)
 
 local Players = game:GetService("Players")
@@ -30,6 +31,10 @@ end
 local function startSpawnFarm()
     task.spawn(function()
         while running do
+            -- 1. Start-Teleport zur Überwachungsposition
+            teleportTo(startPos)
+            task.wait(0.3)
+
             local itemSpawns = workspace:FindFirstChild("ItemSpawns")
             local folder11 = itemSpawns and itemSpawns:FindFirstChild("11")
 
@@ -41,25 +46,25 @@ local function startSpawnFarm()
                     local targetPart = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart", true)
 
                     if targetPart then
-                        -- 1. Teleport zum Objekt in Spawn "11"
+                        -- 2. Teleport zum Objekt in Spawn "11"
                         teleportTo(targetPart.Position + Vector3.new(0, 3, 0))
-                        task.wait(0.2) -- Kurze Verzögerung für Physik/Pivot-Laden
+                        task.wait(0.2)
 
-                        -- 2. ProximityPrompt suchen und sofort auslösen
+                        -- 3. ProximityPrompt / PickupPrompt suchen und sofort auslösen
                         local prompt = targetModel:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
                             fireproximityprompt(prompt)
                             task.wait(0.2)
                         end
 
-                        -- 3. Teleport zur Ziel-Position (155, 3, -86)
+                        -- 4. Teleport zur Ziel-Position (155, 3, -86)
                         teleportTo(returnPos)
                         task.wait(0.5)
                     end
                 end
             end
 
-            task.wait(0.5) -- Intervall zur Schonung der Performance
+            task.wait(0.5) -- Intervall vor dem nächsten Durchlauf
         end
     end)
 end
@@ -72,7 +77,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         running = Value
         if running then
-            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Ueberwache Spawn 11...", Duration = 3})
+            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Überwache Spawn 11...", Duration = 3})
             startSpawnFarm()
         else
             Rayfield:Notify({Title = "Farm Deaktiviert", Content = "Auto-Farm gestoppt.", Duration = 3})
