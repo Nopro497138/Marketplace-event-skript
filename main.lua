@@ -1,4 +1,4 @@
--- Rayfield Library Laden yo
+-- Rayfield Library Laden lol
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
@@ -27,6 +27,9 @@ local SuffixMultipliers = {
     oc = 1e27, no = 1e30, dc = 1e33
 }
 
+-- Werkzeuge, die keine Geld-Brainrots sind
+local IgnoredItems = {"carpet", "coil", "grapple", "fly", "speed", "potion", "hammer", "sword", "reset"}
+
 -- Hilfsfunktion: Sicheres Teleportieren
 local function teleportTo(pos)
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -36,26 +39,31 @@ local function teleportTo(pos)
     end
 end
 
--- ==========================================
--- ERWEITERTE GELD-ANALYSE & EVALUIERUNG
--- ==========================================
+-- Prüft, ob ein Tool-Name in der Blacklist steht
+local function isIgnoredTool(toolName)
+    local lowerName = string.lower(toolName or "")
+    for _, name in ipairs(IgnoredItems) do
+        if string.find(lowerName, name) then
+            return true
+        end
+    end
+    return false
+end
 
 -- Parst Strings wie "$100.5M/s", "100,000,000", "Level 1 (+500k)"
 local function parseMoneyString(str)
     if not str or type(str) ~= "string" then return 0 end
     
-    -- Kommas entfernen und Kleinbuchstaben erzwingen
     local cleaned = string.lower(string.gsub(str, ",", ""))
     local maxDetectedVal = 0
     
-    -- Durchsucht JEDE Zahl inklusive folgendem Text im String
-    for numStr, word in string.gmatch(cleaned, "(%d+%.?%d*)%s*([a-z]*)") do
+    for numStr, suffix in string.gmatch(cleaned, "(%d+%.?%d*)%s*([a-z]*)") do
         local num = tonumber(numStr)
         if num then
             local mult = 1
-            if word ~= "" then
-                local s2 = string.sub(word, 1, 2)
-                local s1 = string.sub(word, 1, 1)
+            if suffix and suffix ~= "" then
+                local s2 = string.sub(suffix, 1, 2)
+                local s1 = string.sub(suffix, 1, 1)
                 
                 if SuffixMultipliers[s2] then
                     mult = SuffixMultipliers[s2]
@@ -74,93 +82,115 @@ local function parseMoneyString(str)
     return maxDetectedVal
 end
 
--- Berechnet den absoluten Höchstwert eines Tools
-local function getToolValue(tool)
-    if not tool or not tool:IsA("Tool") then return 0 end
-    local maxVal = 0
-
-    -- 1. Attributes scannen
-    pcall(function()
-        for _, attrVal in pairs(tool:GetAttributes()) do
-            if type(attrVal) == "number" and attrVal > maxVal then
-                maxVal = attrVal
-            elseif type(attrVal) == "string" then
-                local parsed = parseMoneyString(attrVal)
-                if parsed > maxVal then maxVal = parsed end
-            end
-        end
-    end)
-
-    -- 2. Value-Objekte & UI-Texte durchsuchen
-    for _, descendant in ipairs(tool:GetDescendants()) do
-        if descendant:IsA("NumberValue") or descendant:IsA("IntValue") then
-            if descendant.Value > maxVal then maxVal = descendant.Value end
-        elseif descendant:IsA("StringValue") then
-            local parsed = parseMoneyString(descendant.Value)
-            if parsed > maxVal then maxVal = parsed end
-        elseif descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
-            local parsed = parseMoneyString(descendant.Text)
-            if parsed > maxVal then maxVal = parsed end
-        end
-    end
-
-    -- 3. Tool-Namen prüfen
-    local nameParsed = parseMoneyString(tool.Name)
-    if nameParsed > maxVal then maxVal = nameParsed end
-
-    return maxVal
-end
-
--- Sucht das wertvollste Brainrot in Backpack & Character
+-- Scannt ALLE Items im Backpack & Character vollständig
 local function getBestBrainrot()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     local character = LocalPlayer.Character
     
-    local bestTool = nil
-    local highestValue = -1
+    local allTools = {}
     
-    local function checkContainer(container)
-        if not container then return end
-        for _, tool in ipairs(container:GetChildren()) do
-            if tool:IsA("Tool") then
-                local toolValue = getToolValue(tool)
-                if toolValue > highestValue then
-                    highestValue = toolValue
-                    bestTool = tool
-                end
+    -- 1. Alle Tools im Backpack sammeln
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                table.insert(allTools, item)
+            end
+        end
+    end
+    
+    -- 2. Alle aktuell ausgerüsteten Tools im Character sammeln
+    if character then
+        for _, item in ipairs(character:GetChildren()) do
+            if item:IsA("Tool") then
+                table.insert(allTools, item)
             end
         end
     end
 
-    checkContainer(backpack)
-    checkContainer(character)
-    
-    if bestTool then
-        print("[Auto-Place] Ausgewähltes Item: " .. bestTool.Name .. " | Wert: " .. tostring(highestValue))
+    local bestTool = nil
+    local highestValue = -1
+
+    -- 3. Jedes einzelne Item bewerten
+    for _, tool in ipairs(allTools) do
+        local toolVal = 0
+        
+        if not isIgnoredTool(tool.Name) then
+            -- Attributes prüfen
+            pcall(function()
+                for _, attrVal in pairs(tool:GetAttributes()) do
+                    if type(attrVal) == "number" and attrVal > toolVal then
+                        toolVal = attrVal
+                    elseif type(attrVal) == "string" then
+                        local parsed = parseMoneyString(attrVal)
+                        if parsed > toolVal then toolVal = parsed end
+                    end
+                end
+            end)
+
+            -- Value-Objekte & UI-Texte durchsuchen
+            for _, descendant in ipairs(tool:GetDescendants()) do
+                if descendant:IsA("NumberValue") or descendant:IsA("IntValue") then
+                    if descendant.Value > toolVal then toolVal = descendant.Value end
+                elseif descendant:IsA("StringValue") then
+                    local parsed = parseMoneyString(descendant.Value)
+                    if parsed > toolVal then toolVal = parsed end
+                elseif descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+                    local parsed = parseMoneyString(descendant.Text)
+                    if parsed > toolVal then toolVal = parsed end
+                end
+            end
+
+            -- Tool-Name prüfen
+            local nameParsed = parseMoneyString(tool.Name)
+            if nameParsed > toolVal then toolVal = nameParsed end
+        else
+            toolVal = 0 -- Ignorierte Items (Carpet etc.) werden auf 0 gesetzt
+        end
+
+        print("[Scan Item] " .. tool.Name .. " | Wert: " .. tostring(toolVal))
+
+        if toolVal > highestValue then
+            highestValue = toolVal
+            bestTool = tool
+        end
     end
-    
+
+    -- Fallback: Wenn alle Werte 0 sind, nimm das erste nicht-ignorierte Tool
+    if not bestTool and #allTools > 0 then
+        for _, t in ipairs(allTools) do
+            if not isIgnoredTool(t.Name) then
+                bestTool = t
+                break
+            end
+        end
+        if not bestTool then bestTool = allTools[1] end
+    end
+
+    if bestTool then
+        print("[Selected Best Item] " .. bestTool.Name .. " (Wert: " .. tostring(highestValue) .. ")")
+    end
+
     return bestTool
 end
 
--- Zwingt das Anlegen des Tools
+-- Zwingt das Anlegen des besten Tools
 local function ensureEquipped(tool)
     if not tool or not tool:IsA("Tool") then return end
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     
     if humanoid then
+        -- Wenn das gefundene Tool nicht bereits ausgerüstet ist
         if tool.Parent ~= char then
-            humanoid:UnequipTools()
-            task.wait(0.05)
+            humanoid:UnequipTools() -- Legt z. B. den Carpet ab
+            task.wait(0.1)
             humanoid:EquipTool(tool)
             task.wait(0.2)
         end
     end
 end
 
--- ==========================================
--- PROXIMITY PROMPT TRIGGER
--- ==========================================
+-- Proximity Prompt Execution
 local function safeFirePrompt(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") then return false end
 
@@ -203,9 +233,7 @@ local function safeFirePrompt(prompt)
     return true
 end
 
--- ==========================================
--- PLOT AUTO-PLACE SCHLEIFE
--- ==========================================
+-- Hauptschleife für Plot Auto-Placement
 local function startPlotPlacement()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -244,13 +272,13 @@ local function startPlotPlacement()
                         teleportTo(spawnPart.Position + Vector3.new(0, 2, 0))
                         task.wait(0.15)
                         
-                        -- Höchstwertiges Item suchen & vor Prompt ausrüsten
+                        -- Erst ALLE Items scannen & bestes Item ausrüsten
                         local bestTool = getBestBrainrot()
                         if bestTool then
                             ensureEquipped(bestTool)
                         end
                         
-                        -- Prompt auslösen
+                        -- Danach ProximityPrompt drücken
                         local prompt = currentSlot:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
                             safeFirePrompt(prompt)
@@ -268,9 +296,7 @@ local function startPlotPlacement()
     end)
 end
 
--- ==========================================
--- SPAWN 11 FARM SCHLEIFE
--- ==========================================
+-- Hauptschleife für Spawn 11 Farm
 local function startSpawnFarm()
     task.spawn(function()
         while runningSpawn do
@@ -309,9 +335,7 @@ local function startSpawnFarm()
     end)
 end
 
--- ==========================================
--- RAYFIELD UI TOGGLES
--- ==========================================
+-- Rayfield UI Toggles
 Tab:CreateToggle({
     Name = "Spawn '11' Auto-Farm",
     CurrentValue = false,
@@ -334,7 +358,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         runningPlot = Value
         if runningPlot then
-            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Wählt wertvollstes Item & platziert...", Duration = 3})
+            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Scannt Backpack & platziert bestes Item...", Duration = 3})
             startPlotPlacement()
         else
             Rayfield:Notify({Title = "Plot-Farm Deaktiviert", Content = "Platzierung gestoppt.", Duration = 3})
