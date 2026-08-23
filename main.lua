@@ -10,7 +10,7 @@ local Window = Rayfield:CreateWindow({
 
 local Tab = Window:CreateTab("Auto Farm", 4483362458)
 
--- global/shared State & Positionen
+-- Global State & Positionen
 local runningSpawn = false
 local runningPlot = false
 
@@ -30,26 +30,67 @@ local function teleportTo(pos)
 end
 
 -- ==========================================
--- BRAINROT WERT-BERECHNUNG & AUTOPLACE LOGIK
+-- ROBUSTER PROXIMITY PROMPT TRIGGER
 -- ==========================================
+local function safeFirePrompt(prompt)
+    if not prompt or not prompt:IsA("ProximityPrompt") then return false end
 
--- Hilfsfunktion: Konvertiert Text wie "100k", "2.5M", "1B" in eine Zahl
+    -- 1. Prompt-Eigenschaften temporär für Bypassing anpassen
+    local oldHold = prompt.HoldDuration
+    local oldLOS = prompt.RequiresLineOfSight
+    local oldDist = prompt.MaxActivationDistance
+
+    prompt.HoldDuration = 0
+    prompt.RequiresLineOfSight = false
+    prompt.MaxActivationDistance = 30
+    prompt.Enabled = true
+
+    -- 2. Charakter direkt zum Prompt/Parent ausrichten
+    local parentPart = prompt.Parent
+    if parentPart and parentPart:IsA("BasePart") then
+        teleportTo(parentPart.Position + Vector3.new(0, 2, 0))
+    end
+    task.wait(0.1)
+
+    -- 3. Executor-Funktion mit Fallback-Mechanismus
+    local fired = false
+    if fireproximityprompt then
+        pcall(function()
+            fireproximityprompt(prompt)
+            fired = true
+        end)
+    end
+
+    -- Fallback via Roblox Input-Events (falls fireproximityprompt fehlschlägt)
+    if not fired then
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(0.05)
+            prompt:InputHoldEnd()
+        end)
+    end
+
+    -- Restoration
+    task.wait(0.1)
+    prompt.HoldDuration = oldHold
+    prompt.RequiresLineOfSight = oldLOS
+    prompt.MaxActivationDistance = oldDist
+
+    return true
+end
+
+-- ==========================================
+-- BRAINROT WERT-BERECHNUNG & AUTOPLACE
+-- ==========================================
 local function parseValue(str)
     if not str then return 0 end
     local text = string.lower(str)
-    
-    -- Sucht nach Zahlen mit optionalem Suffix (k, m, b, t, qa, qi)
     local numStr, suffix = string.match(text, "([%d%.]+)%s*([a-z]*)")
     if not numStr then return 0 end
     
     local num = tonumber(numStr) or 0
     local multipliers = {
-        k = 1e3,
-        m = 1e6,
-        b = 1e9,
-        t = 1e12,
-        qa = 1e15,
-        qi = 1e18
+        k = 1e3, m = 1e6, b = 1e9, t = 1e12, qa = 1e15, qi = 1e18
     }
     
     if suffix and multipliers[suffix] then
@@ -58,7 +99,6 @@ local function parseValue(str)
     return num
 end
 
--- Findet das wertvollste Brainrot-Tool im Backpack
 local function getBestBrainrot()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if not backpack then return nil end
@@ -70,7 +110,6 @@ local function getBestBrainrot()
         if tool:IsA("Tool") then
             local toolMaxVal = 0
             
-            -- Alle Text-Objekte im Tool durchsuchen
             for _, descendant in ipairs(tool:GetDescendants()) do
                 local textVal = ""
                 if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
@@ -81,9 +120,7 @@ local function getBestBrainrot()
                 
                 if textVal ~= "" then
                     local val = parseValue(textVal)
-                    if val > toolMaxVal then
-                        toolMaxVal = val
-                    end
+                    if val > toolMaxVal then toolMaxVal = val end
                 end
             end
             
@@ -97,7 +134,6 @@ local function getBestBrainrot()
     return bestTool
 end
 
--- Hauptschleife für Plot Auto-Placement
 local function startPlotPlacement()
     task.spawn(function()
         local playerName = LocalPlayer.Name
@@ -105,7 +141,7 @@ local function startPlotPlacement()
         local plotFolder = workspace:FindFirstChild(plotName)
         
         if not plotFolder then
-            Rayfield:Notify({Title = "Fehler", Content = plotName .. " wurde nicht in Workspace gefunden!", Duration = 4})
+            Rayfield:Notify({Title = "Fehler", Content = plotName .. " nicht gefunden!", Duration = 4})
             runningPlot = false
             return
         end
@@ -116,8 +152,7 @@ local function startPlotPlacement()
             local currentFloor = plotFolder:FindFirstChild("Floor" .. floorIndex)
             
             if not currentFloor then
-                -- Keine weiteren Floors mehr vorhanden
-                Rayfield:Notify({Title = "Fertig", Content = "Alle verfügbaren Floors verarbeitet!", Duration = 3})
+                Rayfield:Notify({Title = "Fertig", Content = "Alle Floors verarbeitet!", Duration = 3})
                 runningPlot = false
                 break
             end
@@ -128,39 +163,33 @@ local function startPlotPlacement()
                 
                 while runningPlot do
                     local currentSlot = slotsFolder:FindFirstChild("Slot" .. slotIndex)
+                    if not currentSlot then break end
                     
-                    if not currentSlot then
-                        -- Keine weiteren Slots in dieser Floor -> Nächste Floor
-                        break
-                    end
-                    
-                    -- 1. Bestes Brainrot aus dem Backpack wählen und ausrüsten
+                    -- Bestes Brainrot wählen und ausrüsten
                     local bestTool = getBestBrainrot()
                     if bestTool then
                         local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
                         if humanoid then
                             humanoid:EquipTool(bestTool)
-                            task.wait(0.2)
+                            task.wait(0.15)
                         end
                     end
                     
-                    -- 2. Target BasePart für Teleport & Prompt suchen
+                    -- Spawn Part & Prompt Ausführung
                     local spawnPart = currentSlot:FindFirstChild("Spawn", true) or currentSlot.PrimaryPart or currentSlot:FindFirstChildWhichIsA("BasePart", true)
                     
                     if spawnPart then
-                        teleportTo(spawnPart.Position + Vector3.new(0, 3, 0))
-                        task.wait(0.3)
+                        teleportTo(spawnPart.Position + Vector3.new(0, 2, 0))
+                        task.wait(0.2)
                         
-                        -- 3. ProximityPrompt im Spawn/Slot suchen und drücken
                         local prompt = currentSlot:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
-                            fireproximityprompt(prompt)
-                            task.wait(0.4)
+                            safeFirePrompt(prompt)
                         end
                     end
                     
                     slotIndex = slotIndex + 1
-                    task.wait(0.2)
+                    task.wait(0.25)
                 end
             end
             
@@ -173,7 +202,6 @@ end
 -- ==========================================
 -- SPAWN 11 FARM LOGIK
 -- ==========================================
-
 local function startSpawnFarm()
     task.spawn(function()
         while runningSpawn do
@@ -194,17 +222,17 @@ local function startSpawnFarm()
 
                     if targetPart then
                         -- 2. Teleport zum Objekt in Spawn "11"
-                        teleportTo(targetPart.Position + Vector3.new(0, 3, 0))
+                        teleportTo(targetPart.Position + Vector3.new(0, 2, 0))
                         task.wait(0.2)
 
-                        -- 3. ProximityPrompt suchen und auslösen
+                        -- 3. Robusten Prompt-Trigger ausführen
                         local prompt = targetModel:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt then
-                            fireproximityprompt(prompt)
-                            task.wait(0.2)
+                            safeFirePrompt(prompt)
                         end
 
                         -- 4. Teleport zur Ziel-Position (155, 3, -86)
+                        task.wait(0.2)
                         teleportTo(returnPos)
                         task.wait(0.5)
                     end
@@ -219,7 +247,6 @@ end
 -- ==========================================
 -- RAYFIELD UI TOGGLES
 -- ==========================================
-
 Tab:CreateToggle({
     Name = "Spawn '11' Auto-Farm",
     CurrentValue = false,
@@ -227,7 +254,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         runningSpawn = Value
         if runningSpawn then
-            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Starte mit Überwachungsposition...", Duration = 3})
+            Rayfield:Notify({Title = "Farm Aktiviert", Content = "Starte robuste Item-Farm...", Duration = 3})
             startSpawnFarm()
         else
             Rayfield:Notify({Title = "Farm Deaktiviert", Content = "Auto-Farm gestoppt.", Duration = 3})
@@ -242,7 +269,7 @@ Tab:CreateToggle({
     Callback = function(Value)
         runningPlot = Value
         if runningPlot then
-            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Suche bestes Brainrot & belege Slots...", Duration = 3})
+            Rayfield:Notify({Title = "Plot-Farm Aktiviert", Content = "Starte robuste Slot-Platzierung...", Duration = 3})
             startPlotPlacement()
         else
             Rayfield:Notify({Title = "Plot-Farm Deaktiviert", Content = "Platzierung gestoppt.", Duration = 3})
