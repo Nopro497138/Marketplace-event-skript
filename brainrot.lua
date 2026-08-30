@@ -1,4 +1,4 @@
--- Rayfield UI Library laden
+-- Rayfield UI Library laden länger
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- Fenster erstellen
@@ -16,7 +16,8 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Farming", 4483362458)
 
 -- Globale Variablen
-local tpDelay = 2
+local initialTpDelay = 10 -- 10 Sekunden warten nach dem TP zu den Objekten
+local finalTpDelay = 2    -- 2 Sekunden warten nach dem TP zurück
 local finalTP = Vector3.new(301, 14595, -2707)
 _G.AutoFarm = false
 
@@ -32,7 +33,7 @@ end
 local function processPhase(startPos, itemName)
     -- 1. Zum Startpunkt TP'en
     teleport(startPos)
-    task.wait(tpDelay) -- Immer 2 Sekunden Delay nach dem TP
+    task.wait(initialTpDelay) -- Hier sind jetzt die 10 Sekunden Delay
 
     -- Prüfen, ob der Pfad existiert
     local spawners = workspace:FindFirstChild("DropperParts")
@@ -69,12 +70,12 @@ local function processPhase(startPos, itemName)
         end
     end
 
-    -- 4. Wenn ein Modell gefunden wurde -> Zum Zielpunkt TP'en
+    -- 4. Wenn ein Modell gefunden wurde -> Zum finalen Zielpunkt TP'en
     if modelFound then
         teleport(finalTP)
-        task.wait(tpDelay) -- Wieder 2 Sekunden warten
+        task.wait(finalTpDelay) -- Hier bleibt es bei 2 Sekunden Delay
     end
-    -- Wenn kein Modell gefunden wurde, passiert hier nichts und das Skript springt direkt zum nächsten Ziel
+    -- Wenn kein Modell gefunden wurde, springt das Skript direkt zum nächsten Ziel
 end
 
 -- Toggle in der UI erstellen
