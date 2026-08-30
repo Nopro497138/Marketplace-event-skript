@@ -1,4 +1,4 @@
--- Rayfield UI Library laden länger
+-- Rayfield UI Library laden yo
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- Fenster erstellen
@@ -16,8 +16,7 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Farming", 4483362458)
 
 -- Globale Variablen
-local initialTpDelay = 10 -- 10 Sekunden warten nach dem TP zu den Objekten
-local finalTpDelay = 2    -- 2 Sekunden warten nach dem TP zurück
+local finalTpDelay = 2    -- 2 Sekunden warten nach dem finalen TP zurück
 local finalTP = Vector3.new(301, 14595, -2707)
 _G.AutoFarm = false
 
@@ -29,11 +28,11 @@ local function teleport(pos)
     end
 end
 
--- Hauptfunktion für einen "Farming-Schritt"
-local function processPhase(startPos, itemName)
+-- Hauptfunktion für einen "Farming-Schritt" mit anpassbarem Delay
+local function processPhase(startPos, itemName, waitTime)
     -- 1. Zum Startpunkt TP'en
     teleport(startPos)
-    task.wait(initialTpDelay) -- Hier sind jetzt die 10 Sekunden Delay
+    task.wait(waitTime) -- Hier wird die individuelle Zeit gewartet (2 oder 10 Sekunden)
 
     -- Prüfen, ob der Pfad existiert
     local spawners = workspace:FindFirstChild("DropperParts")
@@ -73,7 +72,7 @@ local function processPhase(startPos, itemName)
     -- 4. Wenn ein Modell gefunden wurde -> Zum finalen Zielpunkt TP'en
     if modelFound then
         teleport(finalTP)
-        task.wait(finalTpDelay) -- Hier bleibt es bei 2 Sekunden Delay
+        task.wait(finalTpDelay) -- Hier bleibt es immer bei 2 Sekunden Delay
     end
     -- Wenn kein Modell gefunden wurde, springt das Skript direkt zum nächsten Ziel
 end
@@ -89,17 +88,17 @@ Tab:CreateToggle({
         if _G.AutoFarm then
             task.spawn(function()
                 while _G.AutoFarm do
-                    -- Phase 1: Abyssal
+                    -- Phase 1: Abyssal (Wartet 2 Sekunden)
                     if not _G.AutoFarm then break end
-                    processPhase(Vector3.new(-159, -1897, -2364), "Abyssal")
+                    processPhase(Vector3.new(-159, -1897, -2364), "Abyssal", 2)
                     
-                    -- Phase 2: Transcendent
+                    -- Phase 2: Transcendent (Wartet 10 Sekunden)
                     if not _G.AutoFarm then break end
-                    processPhase(Vector3.new(-229, -6920, -2460), "Transcendent")
+                    processPhase(Vector3.new(-229, -6920, -2460), "Transcendent", 10)
                     
-                    -- Phase 3: Supreme
+                    -- Phase 3: Supreme (Wartet 10 Sekunden)
                     if not _G.AutoFarm then break end
-                    processPhase(Vector3.new(-224, -11012, -2463), "Supreme")
+                    processPhase(Vector3.new(-224, -11012, -2463), "Supreme", 10)
                 end
             end)
         end
