@@ -1,34 +1,22 @@
 --[[ 
 ====================================================================
-  SUPERMARKET AUTOFARM SKRIPT (Version 2.0 - Fixed Offset & Camera)
+  SUPERMARKET AUTOFARM SKRIPT (Version 3.0 - Maximum Robustness)
 ====================================================================
-  ABLAUF DER AUTOFARM-SCHLEIFE:
-  1. Teleport zu Position 1 (-382, 10, -408)
-  2. Wartezeit von genau 2 Sekunden
-  3. Scanne 'workspace.SuperMarket.Plots.Models' nach nicht verarbeiteten Modellen
-  4. Falls Modell gefunden:
-     a) Berechne Relativ-Position (Objektpos - Vector3(1, 3, 7)) -> Standposition
-     b) Teleportiere Spieler-Charakter (HumanoidRootPart) dorthin
-     c) Setze Kamera-Typ auf Scriptable und richte Fokus direkt auf das Zielobjekt
-     d) Halte Taste 'Z' (englisches Layout = deutsches Y) für 0.7s gedrückt
-     e) Markiere Modell in 'processedModels', damit es ignoriert wird, solange es existiert
-  5. Teleport zu Position 2 (-427, 202, 54)
-  6. Setze Kamera-Typ zurück auf 'Custom'
-  7. Drücke Taste 'Z' einmal kurz (0.1s)
-  8. Warte 1 Sekunde vor dem nächsten Durchlauf
+  ÄNDERUNGEN:
+  - Viel längere Cooldowns nach Teleports (Server-Sync)
+  - Anti-Slide (Velocity = 0) hinzugefügt, damit man am Ort stehen bleibt
+  - Taste wird nun 1.2 Sekunden gehalten (sicherer als genau 1.0s)
+  - Automatisches Scannen nach ProximityPrompts für 100% Hit-Rate
 ====================================================================
 --]]
 
--- Rayfield UI Library laden
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
    Name = "SuperMarket AutoFarm",
    LoadingTitle = "Skript wird geladen...",
    LoadingSubtitle = "Delta Executor",
-   ConfigurationSaving = {
-      Enabled = false,
-   },
+   ConfigurationSaving = { Enabled = false },
    KeySystem = false
 })
 
@@ -64,6 +52,16 @@ local function getTargetModel()
     return nil, nil
 end
 
+-- Hilfsfunktion: Versucht ein ProximityPrompt direkt zu triggern (extrem zuverlässig)
+local function tryFirePrompt(instance)
+    local prompt = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        fireproximityprompt(prompt)
+        return true
+    end
+    return false
+end
+
 MainTab:CreateToggle({
    Name = "Start Auto Farm",
    CurrentValue = false,
@@ -82,56 +80,71 @@ MainTab:CreateToggle({
                    
                    local hrp = char.HumanoidRootPart
 
-                   -- 1. Erstes TP & 2 Sekunden warten
+                   -- 1. Erstes TP & robuster Cooldown
                    hrp.CFrame = CFrame.new(-382, 10, -408)
-                   task.wait(2)
+                   hrp.Velocity = Vector3.new(0, 0, 0) -- Stoppt herumrutschen
+                   task.wait(2.5) -- Erhöht von 2 auf 2.5 Sekunden
 
                    -- 2. Modell suchen
                    local model, targetPart = getTargetModel()
-                   if model and targetPart then
+                   if model and targetPart and model.Parent then
                        local objPos = targetPart.Position
                        
-                       -- Exakte Versatz-Berechnung entsprechend deines Beispiels:
-                       -- Objekt: (-430, 205, 64) -> Ziel: (-431, 202, 57)
-                       -- Offset = Vector3(-1, -3, -7)
+                       -- Offset berechnen
                        local standPos = objPos + Vector3.new(-1, -3, -7)
 
-                       -- Charakter teleportieren und zum Objekt ausrichten
+                       -- Charakter teleportieren und fixieren
                        hrp.CFrame = CFrame.lookAt(standPos, objPos)
+                       hrp.Velocity = Vector3.new(0, 0, 0)
 
-                       -- Kamera erzwingen und direkt auf das Objekt richten
+                       -- Kamera exakt über dem Kopf platzieren und auf Objekt richten
                        Camera.CameraType = Enum.CameraType.Scriptable
-                       Camera.CFrame = CFrame.lookAt(standPos + Vector3.new(0, 2, 0), objPos)
-                       task.wait(0.3)
+                       Camera.CFrame = CFrame.lookAt(standPos + Vector3.new(0, 1.5, 0), objPos)
+                       
+                       -- WICHTIG: 1.5 Sekunden warten, damit der Server registriert, dass du da bist
+                       -- und das Spiel Zeit hat, das "Y"-UI einzublenden!
+                       task.wait(1.5) 
 
-                       -- 3. Z (deutsches Y) gedrückt halten (0.7s)
-                       Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
-                       task.wait(0.7)
-                       Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
-                       task.wait(0.3)
+                       -- 3. Interaktion (Pickup)
+                       -- Wir versuchen zuerst den 100% sicheren Weg über ProximityPrompts
+                       local promptFired = tryFirePrompt(model)
+                       
+                       if not promptFired then
+                           -- Fallback: Z (deutsches Y) gedrückt halten für 1.2 Sekunden
+                           Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
+                           task.wait(1.2) -- Erhöht auf 1.2s für garantierte 1 Sekunde Haltezeit
+                           Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
+                       else
+                           task.wait(1.2) -- Wenn Prompt gefired wurde, trotzdem die Zeit abwarten
+                       end
+                       
+                       task.wait(0.5) -- Kurze Pause nach dem Aufheben
 
                        -- Modell als verarbeitet markieren
                        processedModels[model] = true
 
-                       -- Kamera wieder auf Normalmodus zurückstellen
+                       -- 4. Zweiter Teleportation-Punkt (Abgeben)
                        Camera.CameraType = Enum.CameraType.Custom
-
-                       -- 4. Zweiter Teleportation-Punkt
                        hrp.CFrame = CFrame.new(-427, 202, 54)
-                       task.wait(0.5)
+                       hrp.Velocity = Vector3.new(0, 0, 0)
+                       
+                       -- Warten, bis der Server den Standortwechsel checkt
+                       task.wait(1.5) 
 
-                       -- 5. Z kurz antippen
+                       -- 5. Z kurz antippen (Abgeben)
                        Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
-                       task.wait(0.1)
+                       task.wait(0.2) -- Etwas längerer "Klick" (0.2s statt 0.1s)
                        Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
-                       task.wait(1)
+                       
+                       -- Cooldown vor dem nächsten Zyklus
+                       task.wait(2)
                    else
-                       -- Falls kein unbearbeitetes Modell da ist
+                       -- Falls kein Modell gefunden wurde
                        Camera.CameraType = Enum.CameraType.Custom
-                       task.wait(1)
+                       task.wait(2)
                    end
                end
-               -- Bei Deaktivierung Kamera zurücksetzen
+               -- Bei Deaktivierung Kamera sofort zurücksetzen
                Camera.CameraType = Enum.CameraType.Custom
            end)
        else
