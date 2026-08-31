@@ -1,4 +1,25 @@
--- Rayfield UI Library laden yo
+--[[ 
+====================================================================
+  SUPERMARKET AUTOFARM SKRIPT (Version 2.0 - Fixed Offset & Camera)
+====================================================================
+  ABLAUF DER AUTOFARM-SCHLEIFE:
+  1. Teleport zu Position 1 (-382, 10, -408)
+  2. Wartezeit von genau 2 Sekunden
+  3. Scanne 'workspace.SuperMarket.Plots.Models' nach nicht verarbeiteten Modellen
+  4. Falls Modell gefunden:
+     a) Berechne Relativ-Position (Objektpos - Vector3(1, 3, 7)) -> Standposition
+     b) Teleportiere Spieler-Charakter (HumanoidRootPart) dorthin
+     c) Setze Kamera-Typ auf Scriptable und richte Fokus direkt auf das Zielobjekt
+     d) Halte Taste 'Z' (englisches Layout = deutsches Y) für 0.7s gedrückt
+     e) Markiere Modell in 'processedModels', damit es ignoriert wird, solange es existiert
+  5. Teleport zu Position 2 (-427, 202, 54)
+  6. Setze Kamera-Typ zurück auf 'Custom'
+  7. Drücke Taste 'Z' einmal kurz (0.1s)
+  8. Warte 1 Sekunde vor dem nächsten Durchlauf
+====================================================================
+--]]
+
+-- Rayfield UI Library laden
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
@@ -23,10 +44,9 @@ _G.AutoFarm = false
 _G.InfHealth = false
 _G.WalkSpeed = 16
 
--- Tabelle für bereits bearbeitete Modelle
 local processedModels = {}
 
--- Hilfsfunktion: Findet ein Ziel-Modell und dessen Hauptteil
+-- Hilfsfunktion: Findet das erste ungesammelte Modell
 local function getTargetModel()
     local modelsFolder = workspace:FindFirstChild("SuperMarket")
     if modelsFolder and modelsFolder:FindFirstChild("Plots") and modelsFolder.Plots:FindFirstChild("Models") then
@@ -62,47 +82,60 @@ MainTab:CreateToggle({
                    
                    local hrp = char.HumanoidRootPart
 
-                   -- 1. Teleport zum ersten Punkt und 2 Sekunden warten
+                   -- 1. Erstes TP & 2 Sekunden warten
                    hrp.CFrame = CFrame.new(-382, 10, -408)
                    task.wait(2)
 
-                   -- 2. Ungesammeltes Modell suchen
+                   -- 2. Modell suchen
                    local model, targetPart = getTargetModel()
                    if model and targetPart then
-                       -- Charakter positionieren (ausgerichtet auf das Objekt)
-                       local targetPos = targetPart.Position
-                       local standPos = targetPos + Vector3.new(3, 0, 3)
+                       local objPos = targetPart.Position
                        
-                       hrp.CFrame = CFrame.lookAt(standPos, targetPos)
-                       
-                       -- Kamera direkt auf das Objekt ausrichten
-                       Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                       task.wait(0.5)
+                       -- Exakte Versatz-Berechnung entsprechend deines Beispiels:
+                       -- Objekt: (-430, 205, 64) -> Ziel: (-431, 202, 57)
+                       -- Offset = Vector3(-1, -3, -7)
+                       local standPos = objPos + Vector3.new(-1, -3, -7)
+
+                       -- Charakter teleportieren und zum Objekt ausrichten
+                       hrp.CFrame = CFrame.lookAt(standPos, objPos)
+
+                       -- Kamera erzwingen und direkt auf das Objekt richten
+                       Camera.CameraType = Enum.CameraType.Scriptable
+                       Camera.CFrame = CFrame.lookAt(standPos + Vector3.new(0, 2, 0), objPos)
+                       task.wait(0.3)
 
                        -- 3. Z (deutsches Y) gedrückt halten (0.7s)
                        Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
                        task.wait(0.7)
                        Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
-                       task.wait(0.5)
+                       task.wait(0.3)
 
                        -- Modell als verarbeitet markieren
                        processedModels[model] = true
 
-                       -- 4. Teleport zum zweiten Punkt (-427, 202, 54)
+                       -- Kamera wieder auf Normalmodus zurückstellen
+                       Camera.CameraType = Enum.CameraType.Custom
+
+                       -- 4. Zweiter Teleportation-Punkt
                        hrp.CFrame = CFrame.new(-427, 202, 54)
                        task.wait(0.5)
 
-                       -- 5. Z einmal antippen
+                       -- 5. Z kurz antippen
                        Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
                        task.wait(0.1)
                        Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
                        task.wait(1)
                    else
-                       -- Falls kein neues Modell mehr existiert/gefunden wurde
+                       -- Falls kein unbearbeitetes Modell da ist
+                       Camera.CameraType = Enum.CameraType.Custom
                        task.wait(1)
                    end
                end
+               -- Bei Deaktivierung Kamera zurücksetzen
+               Camera.CameraType = Enum.CameraType.Custom
            end)
+       else
+           Camera.CameraType = Enum.CameraType.Custom
        end
    end
 })
@@ -113,7 +146,7 @@ MainTab:CreateButton({
        processedModels = {}
        Rayfield:Notify({
           Title = "Zurückgesetzt",
-          Content = "Die Objekt-Liste wurde geleert. Modelle werden erneut angefahren.",
+          Content = "Alle Objekte werden wieder angefahren.",
           Duration = 3,
        })
    end,
