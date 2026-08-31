@@ -1,4 +1,4 @@
--- Rayfield UI Library laden
+-- Rayfield UI Library laden yo
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
@@ -17,29 +17,31 @@ local PlayerTab = Window:CreateTab("Player", 4483362458)
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Vim = game:GetService("VirtualInputManager")
+local Camera = workspace.CurrentCamera
 
 _G.AutoFarm = false
 _G.InfHealth = false
 _G.WalkSpeed = 16
 
--- Funktion, um ein gültiges Modell aus den Plots zu finden
+-- Tabelle für bereits bearbeitete Modelle
+local processedModels = {}
+
+-- Hilfsfunktion: Findet ein Ziel-Modell und dessen Hauptteil
 local function getTargetModel()
     local modelsFolder = workspace:FindFirstChild("SuperMarket")
     if modelsFolder and modelsFolder:FindFirstChild("Plots") and modelsFolder.Plots:FindFirstChild("Models") then
         for _, plot in ipairs(modelsFolder.Plots.Models:GetChildren()) do
             for _, item in ipairs(plot:GetChildren()) do
-                if item:IsA("Model") and item.PrimaryPart then
-                    return item.PrimaryPart
-                elseif item:IsA("BasePart") then
-                    return item
-                elseif item:IsA("Model") then
-                    local part = item:FindFirstChildWhichIsA("BasePart", true)
-                    if part then return part end
+                if item:IsA("Model") and not processedModels[item] and item:IsDescendantOf(workspace) then
+                    local part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart", true)
+                    if part then 
+                        return item, part 
+                    end
                 end
             end
         end
     end
-    return nil
+    return nil, nil
 end
 
 MainTab:CreateToggle({
@@ -60,40 +62,61 @@ MainTab:CreateToggle({
                    
                    local hrp = char.HumanoidRootPart
 
-                   -- 1. Teleport zum ersten Punkt und 1 Sekunde warten
+                   -- 1. Teleport zum ersten Punkt und 2 Sekunden warten
                    hrp.CFrame = CFrame.new(-382, 10, -408)
-                   task.wait(1)
+                   task.wait(2)
 
-                   -- 2. Modell im Workspace suchen und dorthin teleportieren
-                   local targetPart = getTargetModel()
-                   if targetPart then
-                       -- Leicht versetzt stehen (3 Studs entfernt) und das Objekt anschauen
-                       hrp.CFrame = CFrame.lookAt(targetPart.Position + Vector3.new(3, 0, 3), targetPart.Position)
+                   -- 2. Ungesammeltes Modell suchen
+                   local model, targetPart = getTargetModel()
+                   if model and targetPart then
+                       -- Charakter positionieren (ausgerichtet auf das Objekt)
+                       local targetPos = targetPart.Position
+                       local standPos = targetPos + Vector3.new(3, 0, 3)
+                       
+                       hrp.CFrame = CFrame.lookAt(standPos, targetPos)
+                       
+                       -- Kamera direkt auf das Objekt ausrichten
+                       Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                        task.wait(0.5)
 
-                       -- 3. Z gedrückt halten für 0.7 Sekunden (Englische Tastatur Z = Deutsches Y)
+                       -- 3. Z (deutsches Y) gedrückt halten (0.7s)
                        Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
                        task.wait(0.7)
                        Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
                        task.wait(0.5)
 
-                       -- 4. Teleport zum zweiten Punkt
+                       -- Modell als verarbeitet markieren
+                       processedModels[model] = true
+
+                       -- 4. Teleport zum zweiten Punkt (-427, 202, 54)
                        hrp.CFrame = CFrame.new(-427, 202, 54)
                        task.wait(0.5)
 
-                       -- 5. Z drücken (nicht halten)
+                       -- 5. Z einmal antippen
                        Vim:SendKeyEvent(true, Enum.KeyCode.Z, false, game)
                        task.wait(0.1)
                        Vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
-                       task.wait(1) -- Kurze Pause, bevor der Loop neu startet
+                       task.wait(1)
                    else
-                       -- Falls kein Modell gefunden wurde, kurz warten um Lag zu vermeiden
+                       -- Falls kein neues Modell mehr existiert/gefunden wurde
                        task.wait(1)
                    end
                end
            end)
        end
    end
+})
+
+MainTab:CreateButton({
+   Name = "Ignorierte Objekte zurücksetzen",
+   Callback = function()
+       processedModels = {}
+       Rayfield:Notify({
+          Title = "Zurückgesetzt",
+          Content = "Die Objekt-Liste wurde geleert. Modelle werden erneut angefahren.",
+          Duration = 3,
+       })
+   end,
 })
 
 PlayerTab:CreateToggle({
@@ -132,7 +155,7 @@ PlayerTab:CreateSlider({
    end
 })
 
--- Loop, um sicherzustellen, dass der Walkspeed vom Spiel nicht zurückgesetzt wird
+-- Walkspeed Enforcement Loop
 task.spawn(function()
     while task.wait(0.5) do
         local char = LocalPlayer.Character
